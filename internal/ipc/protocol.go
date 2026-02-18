@@ -5,14 +5,21 @@ import "time"
 
 // Request representa um comando enviado pelo CLI ao daemon.
 type Request struct {
-	Action  string `json:"action"` // "new", "list", "kill", "send", "submit", "attach", "read", "status", "reset", "watch"
+	Action  string `json:"action"` // "new", "list", "kill", "send", "submit", "attach", "read", "status", "reset", "watch", "key"
 	Shell   string `json:"shell,omitempty"`
 	ID      string `json:"id,omitempty"`
 	Input   string `json:"input,omitempty"` // para "send"/"submit"
+	Key     string `json:"key,omitempty"`   // para "key": "ctrl+c", "esc", "up", "down", "tab", "enter", "ctrl+d"
 	Lines   int    `json:"lines,omitempty"` // para "read" (quantas linhas do buffer)
 	OnIdle  string `json:"on_idle,omitempty"`  // para "watch"
 	OnWait  string `json:"on_wait,omitempty"`  // para "watch"
 	Timeout int    `json:"timeout,omitempty"`  // para "watch" (segundos)
+}
+
+// ResponseKey é a resposta ao comando "key".
+type ResponseKey struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
 }
 
 // ResponseSend é a resposta ao comando "send"/"submit".

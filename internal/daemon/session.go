@@ -160,6 +160,41 @@ func (s *Session) Reset() error {
 	return err
 }
 
+// keySequences mapeia nomes de teclas para sequências de bytes.
+var keySequences = map[string][]byte{
+	"esc":    {0x1b},
+	"escape": {0x1b},
+	"ctrl+c": {0x03},
+	"ctrl+d": {0x04},
+	"ctrl+z": {0x1a},
+	"ctrl+l": {0x0c},
+	"ctrl+a": {0x01},
+	"ctrl+e": {0x05},
+	"tab":    {0x09},
+	"enter":  {0x0d},
+	"up":     {0x1b, 0x5b, 0x41}, // ESC [ A
+	"down":   {0x1b, 0x5b, 0x42}, // ESC [ B
+	"right":  {0x1b, 0x5b, 0x43}, // ESC [ C
+	"left":   {0x1b, 0x5b, 0x44}, // ESC [ D
+	"home":   {0x1b, 0x5b, 0x48}, // ESC [ H
+	"end":    {0x1b, 0x5b, 0x46}, // ESC [ F
+	"pgup":   {0x1b, 0x5b, 0x35, 0x7e}, // ESC [ 5 ~
+	"pgdn":   {0x1b, 0x5b, 0x36, 0x7e}, // ESC [ 6 ~
+	"delete": {0x1b, 0x5b, 0x33, 0x7e}, // ESC [ 3 ~
+	"backspace": {0x7f},
+}
+
+// SendKey envia uma tecla especial para a sessão pelo nome.
+// Exemplos: "ctrl+c", "esc", "up", "down", "tab", "enter"
+func (s *Session) SendKey(key string) error {
+	seq, ok := keySequences[strings.ToLower(key)]
+	if !ok {
+		return fmt.Errorf("tecla desconhecida: %q. Use: esc, ctrl+c, ctrl+d, tab, enter, up, down, left, right, home, end, pgup, pgdn, backspace", key)
+	}
+	_, err := s.cpty.Write(seq)
+	return err
+}
+
 // stripAnsi remove sequências de escape ANSI de uma string.
 func stripAnsi(s string) string {
 	var b strings.Builder

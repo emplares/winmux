@@ -55,6 +55,9 @@ func main() {
 	case "reset":
 		requireArg("reset", 3)
 		cmdReset(os.Args[2])
+	case "key":
+		requireArg("key", 4)
+		cmdKey(os.Args[2], os.Args[3])
 	case "watch":
 		requireArg("watch", 3)
 		cmdWatch(os.Args[2:])
@@ -198,6 +201,19 @@ func cmdReset(id string) {
 	fmt.Printf("✓ Sessão %s resetada (Ctrl+C enviado)\n", id)
 }
 
+func cmdKey(id, key string) {
+	resp, err := send(ipc.Request{Action: "key", ID: id, Key: key})
+	if err != nil {
+		fatal(err)
+	}
+	var r ipc.ResponseKey
+	mustUnmarshal(resp, &r)
+	if r.Error != "" {
+		fatal(fmt.Errorf(r.Error))
+	}
+	fmt.Printf("✓ Tecla %q enviada para sessão %s\n", key, id)
+}
+
 // cmdWatch inicia um watcher que executa callbacks quando o estado muda.
 // Uso: winmux watch <id> [--on-idle <cmd>] [--on-waiting <cmd>] [--timeout <segundos>]
 func cmdWatch(args []string) {
@@ -325,6 +341,7 @@ Uso:
   winmux submit <id> <texto>                   Injeta texto em TUI (Gemini, Codex)
   winmux read <id> [linhas]                    Lê buffer de output (padrão: 50)
   winmux status <id>                           Estado: idle | busy | waiting
+  winmux key <id> <tecla>                      Envia tecla especial
   winmux reset <id>                            Envia Ctrl+C (limpa >>)
   winmux watch <id> [--on-idle <cmd>]          Notifica quando estado muda
               [--on-waiting <cmd>]
@@ -334,6 +351,9 @@ Uso:
 
 Exemplos:
   winmux submit abc123 "resuma esses arquivos"
+  winmux key abc123 esc
+  winmux key abc123 ctrl+c
+  winmux key abc123 up
   winmux status abc123
   winmux watch abc123 --on-idle "curl -X POST https://meu-webhook.com/notify"
   winmux reset abc123

@@ -47,6 +47,8 @@ func (d *Daemon) Handle(req ipc.Request) (any, error) {
 		return d.handleReset(req)
 	case "watch":
 		return d.handleWatch(req)
+	case "key":
+		return d.handleKey(req)
 	default:
 		return nil, fmt.Errorf("ação desconhecida: %s", req.Action)
 	}
@@ -190,6 +192,19 @@ func (d *Daemon) handleReset(req ipc.Request) (*ipc.ResponseSend, error) {
 		return &ipc.ResponseSend{Error: err.Error()}, nil
 	}
 	return &ipc.ResponseSend{OK: true}, nil
+}
+
+func (d *Daemon) handleKey(req ipc.Request) (*ipc.ResponseKey, error) {
+	d.mu.RLock()
+	sess, ok := d.sessions[req.ID]
+	d.mu.RUnlock()
+	if !ok {
+		return &ipc.ResponseKey{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+	}
+	if err := sess.SendKey(req.Key); err != nil {
+		return &ipc.ResponseKey{Error: err.Error()}, nil
+	}
+	return &ipc.ResponseKey{OK: true}, nil
 }
 
 // handleWatch inicia watch em goroutine separada e retorna confirmação imediata.
