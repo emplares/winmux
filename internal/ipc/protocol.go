@@ -5,7 +5,7 @@ import "time"
 
 // Request representa um comando enviado pelo CLI ao daemon.
 type Request struct {
-	Action  string `json:"action"` // "new", "list", "kill", "send", "submit", "attach", "read", "status", "reset", "watch", "key"
+	Action  string `json:"action"` // "new", "list", "kill", "send", "submit", "attach", "read", "logs", "status", "reset", "watch", "key"
 	Shell   string `json:"shell,omitempty"`
 	ID      string `json:"id,omitempty"`
 	Input   string `json:"input,omitempty"` // para "send"/"submit"
@@ -82,4 +82,10 @@ type ResponseStatus struct {
 type ResponseWatch struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+}
+
+// ResponseLogs é a resposta ao comando "logs".
+type ResponseLogs struct {
+	Lines []string `json:"lines"`
+	Error string   `json:"error,omitempty"`
 }

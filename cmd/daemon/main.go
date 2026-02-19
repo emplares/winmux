@@ -17,7 +17,45 @@ import (
 )
 
 func main() {
-	fmt.Println("winmux daemon v0.1.0-m2")
+	// Detectar flags de gerenciamento de serviço
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case "--install-service":
+			if err := installService(); err != nil {
+				fmt.Fprintf(os.Stderr, "Erro ao instalar serviço: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		case "--remove-service":
+			if err := removeService(); err != nil {
+				fmt.Fprintf(os.Stderr, "Erro ao remover serviço: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		case "--help", "-h":
+			printDaemonUsage()
+			os.Exit(0)
+		}
+	}
+
+	// Detectar se está rodando como serviço Windows
+	wasService, err := runAsService(runDaemon)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Erro no modo serviço: %v\n", err)
+		os.Exit(1)
+	}
+	if wasService {
+		// Retornou do serviço normalmente — encerra
+		return
+	}
+
+	// Modo normal (linha de comando)
+	runDaemon()
+}
+
+// runDaemon inicializa e executa o loop principal do daemon.
+func runDaemon() {
+	fmt.Println("winmux daemon v0.2.0")
 	fmt.Printf("Named pipe: %s\n", ipc.PipeName)
 
 	d := daemon.New()
@@ -74,4 +112,20 @@ func handleConn(d *daemon.Daemon, conn net.Conn) {
 		data, _ := json.Marshal(resp)
 		conn.Write(append(data, '\n'))
 	}
+}
+
+func printDaemonUsage() {
+	fmt.Println(`winmux-daemon — daemon de sessões PowerShell via ConPTY + named pipes
+
+Uso:
+  winmux-daemon.exe                    Executa em modo normal (terminal)
+  winmux-daemon.exe --install-service  Instala como serviço Windows (auto-start)
+  winmux-daemon.exe --remove-service   Remove o serviço Windows
+  winmux-daemon.exe --help             Exibe esta ajuda
+
+Quando instalado como serviço, o daemon inicia automaticamente com o Windows.
+Gerenciar com:
+  sc start WinMuxDaemon
+  sc stop  WinMuxDaemon
+  sc query WinMuxDaemon`)
 }

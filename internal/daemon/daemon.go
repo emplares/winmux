@@ -49,6 +49,8 @@ func (d *Daemon) Handle(req ipc.Request) (any, error) {
 		return d.handleWatch(req)
 	case "key":
 		return d.handleKey(req)
+	case "logs":
+		return d.handleLogs(req)
 	default:
 		return nil, fmt.Errorf("ação desconhecida: %s", req.Action)
 	}
@@ -274,6 +276,16 @@ func (d *Daemon) runWatch(req ipc.Request) {
 			return
 		}
 	}
+}
+
+func (d *Daemon) handleLogs(req ipc.Request) (*ipc.ResponseLogs, error) {
+	d.mu.RLock()
+	sess, ok := d.sessions[req.ID]
+	d.mu.RUnlock()
+	if !ok {
+		return &ipc.ResponseLogs{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+	}
+	return &ipc.ResponseLogs{Lines: sess.Logs()}, nil
 }
 
 func newID() (string, error) {

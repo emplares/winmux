@@ -136,6 +136,20 @@ func (s *Session) ReadBuffer(n int) []string {
 	return lines
 }
 
+// Logs retorna o histórico completo do buffer (ou últimas 500 linhas se muito grande).
+func (s *Session) Logs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	const maxLogs = 500
+	n := len(s.buffer)
+	if n > maxLogs {
+		n = maxLogs
+	}
+	lines := make([]string, n)
+	copy(lines, s.buffer[len(s.buffer)-n:])
+	return lines
+}
+
 // Send injeta texto + Enter na sessão.
 func (s *Session) Send(input string) error {
 	_, err := s.cpty.Write([]byte(input + "\r\n"))

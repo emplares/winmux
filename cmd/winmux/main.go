@@ -58,6 +58,9 @@ func main() {
 	case "key":
 		requireArg("key", 4)
 		cmdKey(os.Args[2], os.Args[3])
+	case "logs":
+		requireArg("logs", 3)
+		cmdLogs(os.Args[2])
 	case "watch":
 		requireArg("watch", 3)
 		cmdWatch(os.Args[2:])
@@ -214,6 +217,22 @@ func cmdKey(id, key string) {
 	fmt.Printf("✓ Tecla %q enviada para sessão %s\n", key, id)
 }
 
+// cmdLogs exibe o histórico completo do buffer de output de uma sessão (até 500 linhas).
+func cmdLogs(id string) {
+	resp, err := send(ipc.Request{Action: "logs", ID: id})
+	if err != nil {
+		fatal(err)
+	}
+	var r ipc.ResponseLogs
+	mustUnmarshal(resp, &r)
+	if r.Error != "" {
+		fatal(fmt.Errorf(r.Error))
+	}
+	for _, line := range r.Lines {
+		fmt.Println(line)
+	}
+}
+
 // cmdWatch inicia um watcher que executa callbacks quando o estado muda.
 // Uso: winmux watch <id> [--on-idle <cmd>] [--on-waiting <cmd>] [--timeout <segundos>]
 func cmdWatch(args []string) {
@@ -339,6 +358,7 @@ Uso:
   winmux attach <id>                           Conecta à sessão (I/O ao vivo)
   winmux send <id> <comando>                   Injeta comando (shell)
   winmux submit <id> <texto>                   Injeta texto em TUI (Gemini, Codex)
+  winmux logs <id>                             Histórico completo do buffer (até 500 linhas)
   winmux read <id> [linhas]                    Lê buffer de output (padrão: 50)
   winmux status <id>                           Estado: idle | busy | waiting
   winmux key <id> <tecla>                      Envia tecla especial

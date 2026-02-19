@@ -55,6 +55,31 @@ GOOS=windows GOARCH=amd64 go build -o dist/winmux-daemon.exe ./cmd/daemon
 Start-Process -FilePath .\winmux-daemon.exe -WindowStyle Hidden
 ```
 
+### Instalação como Serviço Windows
+
+Para que o daemon inicie automaticamente no boot do Windows, instale-o como serviço do sistema:
+
+```powershell
+# Instalar o serviço (requer privilégios de Administrador)
+.\winmux-daemon.exe --install-service
+
+# Iniciar o serviço manualmente (ou reinicie o Windows)
+sc start WinMuxDaemon
+
+# Verificar status
+sc query WinMuxDaemon
+
+# Parar o serviço
+sc stop WinMuxDaemon
+
+# Remover o serviço
+.\winmux-daemon.exe --remove-service
+```
+
+> **Nota:** Execute o PowerShell como **Administrador** para instalar/remover serviços.
+
+O serviço é registrado como `WinMuxDaemon` com início automático (`StartType=Automatic`), rodando como `LocalSystem`. Após instalado, o daemon sobe automaticamente a cada boot, sem necessidade de login manual.
+
 ---
 
 ## Uso
@@ -65,9 +90,11 @@ winmux list                                  Lista sessões ativas
 winmux attach <id>                           Conecta à sessão (I/O ao vivo)
 winmux send <id> <comando>                   Injeta comando (shell)
 winmux submit <id> <texto>                   Injeta texto em TUI (Gemini, Codex)
-winmux read <id> [linhas]                    Lê buffer de output (padrão: 50)
+winmux read <id> [linhas]                    Lê buffer de output (padrão: 50 linhas)
+winmux logs <id>                             Histórico completo do buffer (até 500 linhas)
 winmux status <id>                           Estado: idle | busy | waiting
 winmux reset <id>                            Envia Ctrl+C (limpa >>)
+winmux key <id> <tecla>                      Envia tecla especial (esc, ctrl+c, up, down…)
 winmux watch <id> [opções]                   Notifica quando estado muda
 winmux kill <id>                             Encerra sessão
 winmux version                               Versão
@@ -142,11 +169,11 @@ O daemon analisa o buffer de output da sessão e detecta:
 
 ## Roadmap
 
-- [ ] Serviço Windows (sobe automaticamente no boot)
-- [ ] `winmux logs <id>` — histórico completo da sessão
-- [ ] `winmux key <id> <tecla>` — enviar teclas especiais (Ctrl+C, Escape, setas)
+- [x] Serviço Windows (sobe automaticamente no boot) — `--install-service`
+- [x] `winmux logs <id>` — histórico completo da sessão (até 500 linhas)
+- [x] `winmux key <id> <tecla>` — enviar teclas especiais (Ctrl+C, Escape, setas)
 - [ ] Detecção de estado mais robusta (ML leve sobre o buffer)
-- [ ] Suporte a cmd.exe e WSL
+- [ ] Suporte a WSL
 
 ---
 
