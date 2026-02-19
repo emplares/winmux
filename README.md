@@ -97,6 +97,15 @@ winmux reset <id>                            Envia Ctrl+C (limpa >>)
 winmux key <id> <tecla>                      Envia tecla especial (esc, ctrl+c, up, down…)
 winmux watch <id> [opções]                   Notifica quando estado muda
 winmux kill <id>                             Encerra sessão
+
+Jobs assíncronos (modo agente):
+winmux job run <id> <comando>                Dispara comando async, retorna job ID imediatamente
+winmux job status <job-id>                   Estado: running | done | error
+winmux job output <job-id> [--tail N]        Output acumulado do job
+winmux job wait <job-id> [--timeout 30m]     Aguarda conclusão com timeout
+winmux job list                              Lista todos os jobs ativos
+winmux job kill <job-id>                     Cancela job em andamento
+
 winmux version                               Versão
 ```
 
@@ -132,7 +141,7 @@ winmux watch abc123 --on-idle "echo PRONTO" --timeout 300
 
 ---
 
-## Caso de uso: agente de IA remoto
+## Caso de uso: agente de IA remoto (modo interativo)
 
 ```
 [WhatsApp] → [Agente na nuvem] → SSH → winmux → [Gemini/Codex no Windows]
@@ -143,6 +152,37 @@ winmux watch abc123 --on-idle "echo PRONTO" --timeout 300
 3. Submete prompt: `winmux submit <id> "analise esses arquivos"`
 4. Monitora: `winmux watch <id> --on-idle "curl -X POST $WEBHOOK"`
 5. Lê resultado: `winmux read <id>`
+
+---
+
+## Caso de uso: agente de IA remoto (modo assíncrono — v0.3.0)
+
+Para tarefas longas (análise de projeto, geração de código extenso), use jobs assíncronos — o agente não bloqueia nem fica em silêncio:
+
+```
+[WhatsApp] → [Agente] → SSH → winmux job run → [job ID] → polling → resultado
+```
+
+```powershell
+# 1. Disparar o job (retorna imediatamente)
+winmux job run minha-sessao "codex analyze ."
+# → ✓ Job iniciado: a3f9b2
+#   winmux job status a3f9b2
+
+# 2. Verificar progresso (o agente pode notificar o usuário enquanto espera)
+winmux job status a3f9b2
+# → ⏳ running  sessão=minha-sessao  linhas=47  tempo=2m30s
+
+# 3. Aguardar conclusão com timeout
+winmux job wait a3f9b2 --timeout 30m
+# → ✓ Concluído em 8m12s (312 linhas de output)
+
+# 4. Ler resultado
+winmux job output a3f9b2 --tail 50
+```
+
+O agente sinaliza ao usuário imediatamente após o `job run`:
+> "Comando enviado (job a3f9b2). Te aviso quando terminar — pode levar alguns minutos."
 
 ---
 
@@ -172,6 +212,7 @@ O daemon analisa o buffer de output da sessão e detecta:
 - [x] Serviço Windows (sobe automaticamente no boot) — `--install-service`
 - [x] `winmux logs <id>` — histórico completo da sessão (até 500 linhas)
 - [x] `winmux key <id> <tecla>` — enviar teclas especiais (Ctrl+C, Escape, setas)
+- [x] `winmux job *` — modo assíncrono para agentes de IA (v0.3.0)
 - [ ] Detecção de estado mais robusta (ML leve sobre o buffer)
 - [ ] Suporte a WSL
 
