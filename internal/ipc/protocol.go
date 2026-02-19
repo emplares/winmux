@@ -5,15 +5,57 @@ import "time"
 
 // Request representa um comando enviado pelo CLI ao daemon.
 type Request struct {
-	Action  string `json:"action"` // "new", "list", "kill", "send", "submit", "attach", "read", "logs", "status", "reset", "watch", "key"
+	Action  string `json:"action"` // "new", "list", "kill", "send", "submit", "attach", "read", "logs", "status", "reset", "watch", "key", "job.run", "job.status", "job.output", "job.list", "job.kill", "job.wait"
 	Shell   string `json:"shell,omitempty"`
 	ID      string `json:"id,omitempty"`
-	Input   string `json:"input,omitempty"` // para "send"/"submit"
+	Input   string `json:"input,omitempty"` // para "send"/"submit"/"job.run"
 	Key     string `json:"key,omitempty"`   // para "key": "ctrl+c", "esc", "up", "down", "tab", "enter", "ctrl+d"
-	Lines   int    `json:"lines,omitempty"` // para "read" (quantas linhas do buffer)
+	Lines   int    `json:"lines,omitempty"` // para "read" (quantas linhas do buffer) e "job.output" (tail)
 	OnIdle  string `json:"on_idle,omitempty"`  // para "watch"
 	OnWait  string `json:"on_wait,omitempty"`  // para "watch"
-	Timeout int    `json:"timeout,omitempty"`  // para "watch" (segundos)
+	Timeout int    `json:"timeout,omitempty"`  // para "watch" e "job.wait" (segundos)
+}
+
+// JobInfo contém os dados de um job para exibição no CLI.
+type JobInfo struct {
+	ID        string     `json:"id"`
+	SessionID string     `json:"session_id"`
+	Command   string     `json:"command"`
+	State     string     `json:"state"` // "running" | "done" | "error"
+	Lines     int        `json:"lines"` // total de linhas de output acumuladas
+	StartedAt time.Time  `json:"started_at"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
+	Error     string     `json:"error,omitempty"`
+}
+
+// ResponseJobRun é a resposta ao comando "job.run".
+type ResponseJobRun struct {
+	JobID string `json:"job_id"`
+	Error string `json:"error,omitempty"`
+}
+
+// ResponseJobStatus é a resposta ao comando "job.status".
+type ResponseJobStatus struct {
+	Job   JobInfo `json:"job"`
+	Error string  `json:"error,omitempty"`
+}
+
+// ResponseJobOutput é a resposta ao comando "job.output".
+type ResponseJobOutput struct {
+	Lines []string `json:"lines"`
+	Error string   `json:"error,omitempty"`
+}
+
+// ResponseJobList é a resposta ao comando "job.list".
+type ResponseJobList struct {
+	Jobs  []JobInfo `json:"jobs"`
+	Error string    `json:"error,omitempty"`
+}
+
+// ResponseJobKill é a resposta ao comando "job.kill".
+type ResponseJobKill struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
 }
 
 // ResponseKey é a resposta ao comando "key".

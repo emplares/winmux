@@ -96,10 +96,61 @@ O `winmux status` analisa o buffer das últimas 20 linhas e detecta:
 - [x] status (idle/busy/waiting)
 - [x] reset (Ctrl+C)
 - [x] watch com callbacks
-- [ ] Serviço Windows (boot automático)
-- [ ] winmux key (teclas especiais: Escape, setas, Tab)
-- [ ] winmux logs (histórico completo)
-- [ ] Detecção de estado mais robusta
+- [x] Serviço Windows (boot automático)
+- [x] winmux key (teclas especiais: Escape, setas, Tab)
+- [x] winmux logs (histórico completo)
+- [x] Detecção de estado mais robusta
+
+---
+
+## v0.3.0 — Modo Agent (Jobs Assíncronos)
+
+**Problema:** quando um agente de IA chama `winmux send` para executar algo demorado
+(ex: Codex analisando um projeto inteiro por 30 minutos), o comando bloqueia sem sinalizar
+progresso — comportamento deselegante para o usuário do outro lado.
+
+**Solução:** um sistema de jobs assíncronos integrado ao daemon existente.
+
+### Novos comandos
+
+```
+winmux job run <sessão> <comando>         → dispara o comando e retorna job ID imediatamente
+winmux job status <job-id>               → idle | running | done | error
+winmux job output <job-id> [--tail n]    → output acumulado até o momento
+winmux job wait <job-id> [--timeout 30m] → bloqueia até concluir (com timeout)
+winmux job list                          → todos os jobs ativos/recentes
+winmux job kill <job-id>                 → cancela job em andamento
+```
+
+### Fluxo para agentes
+
+```
+1. agente chama: winmux job run minha-sessao "codex analyze ."
+2. daemon retorna: job-id=abc123 (imediato)
+3. agente notifica usuário: "Comando enviado (job abc123). Te aviso quando terminar."
+4. agente faz polling: winmux job status abc123
+5. quando done: winmux job output abc123 → entrega resultado
+```
+
+### Implementação
+
+- Jobs são gerenciados pelo daemon existente (sem novo processo)
+- Cada job tem: ID (uuid curto), sessão vinculada, estado, buffer de output, timestamps
+- Polling ou watch: `winmux job wait` usa o mecanismo de watch existente internamente
+- IPC: mesma named pipe, novos tipos de mensagem (`JobRun`, `JobStatus`, `JobOutput`)
+
+### Distinção interativo vs. agent
+
+Não são dois daemons — é um único daemon com dois modos de interface:
+
+| Modo | Uso | Comportamento |
+|------|-----|---------------|
+| **Interativo** | Humano via terminal | `send`, `attach`, `submit` — bloqueante, síncrono |
+| **Agent** | IA via SSH | `job run`, `job status`, `job output` — assíncrono |
+
+### Compatibilidade
+
+100% retrocompatível — comandos existentes não mudam.
 
 ---
 

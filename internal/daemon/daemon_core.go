@@ -36,11 +36,42 @@ type ISession interface {
 // SessionFactory é uma função que cria novas sessões (injetável para testes).
 type SessionFactory func(id, shell string) (ISession, error)
 
+// job representa um job assíncrono disparado por um agente.
+type job struct {
+	id        string
+	sessionID string
+	command   string
+	state     string // "running" | "done" | "error"
+	output    []string
+	startedAt time.Time
+	endedAt   *time.Time
+	errMsg    string
+	cancel    func() // cancela a goroutine do job
+	mu        sync.RWMutex
+}
+
+func (j *job) info() ipc.JobInfo {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return ipc.JobInfo{
+		ID:        j.id,
+		SessionID: j.sessionID,
+		Command:   j.command,
+		State:     j.state,
+		Lines:     len(j.output),
+		StartedAt: j.startedAt,
+		EndedAt:   j.endedAt,
+		Error:     j.errMsg,
+	}
+}
+
 // Daemon gerencia o conjunto de sessões ativas.
 type Daemon struct {
 	mu       sync.RWMutex
 	sessions map[string]ISession
 	factory  SessionFactory
+	jobsMu   sync.RWMutex
+	jobs     map[string]*job
 }
 
 // New cria um novo Daemon com a factory padrão (plataforma-específica).
@@ -48,6 +79,7 @@ func New() *Daemon {
 	return &Daemon{
 		sessions: make(map[string]ISession),
 		factory:  defaultSessionFactory,
+		jobs:     make(map[string]*job),
 	}
 }
 
@@ -56,6 +88,7 @@ func NewWithFactory(factory SessionFactory) *Daemon {
 	return &Daemon{
 		sessions: make(map[string]ISession),
 		factory:  factory,
+		jobs:     make(map[string]*job),
 	}
 }
 
@@ -82,6 +115,18 @@ func (d *Daemon) Handle(req ipc.Request) (any, error) {
 		return d.handleKey(req)
 	case "logs":
 		return d.handleLogs(req)
+	case "job.run":
+		return d.handleJobRun(req)
+	case "job.status":
+		return d.handleJobStatus(req)
+	case "job.output":
+		return d.handleJobOutput(req)
+	case "job.list":
+		return d.handleJobList()
+	case "job.kill":
+		return d.handleJobKill(req)
+	case "job.wait":
+		return d.handleJobWait(req)
 	default:
 		return nil, fmt.Errorf("ação desconhecida: %s", req.Action)
 	}
@@ -226,6 +271,205 @@ func (d *Daemon) handleLogs(req ipc.Request) (*ipc.ResponseLogs, error) {
 		return &ipc.ResponseLogs{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
 	}
 	return &ipc.ResponseLogs{Lines: sess.Logs()}, nil
+}
+
+// ── Job handlers ──────────────────────────────────────────────────────────────
+
+func (d *Daemon) handleJobRun(req ipc.Request) (*ipc.ResponseJobRun, error) {
+	d.mu.RLock()
+	sess, ok := d.sessions[req.ID]
+	d.mu.RUnlock()
+	if !ok {
+		return &ipc.ResponseJobRun{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+	}
+
+	jobID, err := newID()
+	if err != nil {
+		return nil, err
+	}
+
+	j := &job{
+		id:        jobID,
+		sessionID: req.ID,
+		command:   req.Input,
+		state:     "running",
+		output:    []string{},
+		startedAt: time.Now(),
+	}
+
+	// canal para cancelamento
+	done := make(chan struct{})
+	j.cancel = func() { close(done) }
+
+	d.jobsMu.Lock()
+	d.jobs[jobID] = j
+	d.jobsMu.Unlock()
+
+	// goroutine que executa o comando e coleta output
+	go func() {
+		// dispara o comando na sessão
+		if err := sess.Send(req.Input); err != nil {
+			j.mu.Lock()
+			j.state = "error"
+			j.errMsg = err.Error()
+			now := time.Now()
+			j.endedAt = &now
+			j.mu.Unlock()
+			return
+		}
+
+		// aguarda ao menos 1s para o processo iniciar
+		select {
+		case <-done:
+			return
+		case <-time.After(1 * time.Second):
+		}
+
+		lastLen := 0
+		idleCount := 0
+
+		for {
+			select {
+			case <-done:
+				j.mu.Lock()
+				j.state = "error"
+				j.errMsg = "cancelado"
+				now := time.Now()
+				j.endedAt = &now
+				j.mu.Unlock()
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+
+			// coleta output novo
+			lines := sess.ReadBuffer(200)
+			j.mu.Lock()
+			if len(lines) > lastLen {
+				j.output = append(j.output, lines[lastLen:]...)
+				lastLen = len(lines)
+				idleCount = 0
+			}
+			j.mu.Unlock()
+
+			// detecta conclusão: idle por 3 ciclos consecutivos (1.5s)
+			state, _ := sess.DetectState()
+			if state == "idle" {
+				idleCount++
+				if idleCount >= 3 {
+					// captura output final
+					lines = sess.ReadBuffer(500)
+					j.mu.Lock()
+					if len(lines) > lastLen {
+						j.output = append(j.output, lines[lastLen:]...)
+					}
+					j.state = "done"
+					now := time.Now()
+					j.endedAt = &now
+					j.mu.Unlock()
+					return
+				}
+			} else {
+				idleCount = 0
+			}
+		}
+	}()
+
+	// agenda limpeza após 1h
+	go func() {
+		select {
+		case <-time.After(1 * time.Hour):
+			d.jobsMu.Lock()
+			delete(d.jobs, jobID)
+			d.jobsMu.Unlock()
+		}
+	}()
+
+	return &ipc.ResponseJobRun{JobID: jobID}, nil
+}
+
+func (d *Daemon) handleJobStatus(req ipc.Request) (*ipc.ResponseJobStatus, error) {
+	d.jobsMu.RLock()
+	j, ok := d.jobs[req.ID]
+	d.jobsMu.RUnlock()
+	if !ok {
+		return &ipc.ResponseJobStatus{Error: fmt.Sprintf("job %q não encontrado", req.ID)}, nil
+	}
+	return &ipc.ResponseJobStatus{Job: j.info()}, nil
+}
+
+func (d *Daemon) handleJobOutput(req ipc.Request) (*ipc.ResponseJobOutput, error) {
+	d.jobsMu.RLock()
+	j, ok := d.jobs[req.ID]
+	d.jobsMu.RUnlock()
+	if !ok {
+		return &ipc.ResponseJobOutput{Error: fmt.Sprintf("job %q não encontrado", req.ID)}, nil
+	}
+	j.mu.RLock()
+	lines := make([]string, len(j.output))
+	copy(lines, j.output)
+	j.mu.RUnlock()
+
+	// --tail N
+	if req.Lines > 0 && req.Lines < len(lines) {
+		lines = lines[len(lines)-req.Lines:]
+	}
+	return &ipc.ResponseJobOutput{Lines: lines}, nil
+}
+
+func (d *Daemon) handleJobList() (*ipc.ResponseJobList, error) {
+	d.jobsMu.RLock()
+	defer d.jobsMu.RUnlock()
+	jobs := make([]ipc.JobInfo, 0, len(d.jobs))
+	for _, j := range d.jobs {
+		jobs = append(jobs, j.info())
+	}
+	return &ipc.ResponseJobList{Jobs: jobs}, nil
+}
+
+func (d *Daemon) handleJobKill(req ipc.Request) (*ipc.ResponseJobKill, error) {
+	d.jobsMu.Lock()
+	j, ok := d.jobs[req.ID]
+	d.jobsMu.Unlock()
+	if !ok {
+		return &ipc.ResponseJobKill{Error: fmt.Sprintf("job %q não encontrado", req.ID)}, nil
+	}
+	j.mu.RLock()
+	state := j.state
+	j.mu.RUnlock()
+	if state != "running" {
+		return &ipc.ResponseJobKill{Error: fmt.Sprintf("job %q não está running (estado: %s)", req.ID, state)}, nil
+	}
+	if j.cancel != nil {
+		j.cancel()
+	}
+	return &ipc.ResponseJobKill{OK: true}, nil
+}
+
+func (d *Daemon) handleJobWait(req ipc.Request) (*ipc.ResponseJobStatus, error) {
+	d.jobsMu.RLock()
+	j, ok := d.jobs[req.ID]
+	d.jobsMu.RUnlock()
+	if !ok {
+		return &ipc.ResponseJobStatus{Error: fmt.Sprintf("job %q não encontrado", req.ID)}, nil
+	}
+
+	timeout := time.Duration(req.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		j.mu.RLock()
+		state := j.state
+		j.mu.RUnlock()
+		if state != "running" {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	return &ipc.ResponseJobStatus{Job: j.info()}, nil
 }
 
 // HandleAttach é implementado somente em daemon.go (Windows) pois usa net.Conn raw.

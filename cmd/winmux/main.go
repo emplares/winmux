@@ -64,8 +64,35 @@ func main() {
 	case "watch":
 		requireArg("watch", 3)
 		cmdWatch(os.Args[2:])
+	case "job":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "Uso: winmux job <run|status|output|wait|list|kill> ...")
+			os.Exit(1)
+		}
+		switch os.Args[2] {
+		case "run":
+			requireJobArgs("job run", 5)
+			cmdJobRun(os.Args[3], strings.Join(os.Args[4:], " "))
+		case "status":
+			requireJobArgs("job status", 4)
+			cmdJobStatus(os.Args[3])
+		case "output":
+			requireJobArgs("job output", 4)
+			cmdJobOutput(os.Args[3:])
+		case "wait":
+			requireJobArgs("job wait", 4)
+			cmdJobWait(os.Args[3:])
+		case "list":
+			cmdJobList()
+		case "kill":
+			requireJobArgs("job kill", 4)
+			cmdJobKill(os.Args[3])
+		default:
+			fmt.Fprintf(os.Stderr, "Subcomando job desconhecido: %s\n", os.Args[2])
+			os.Exit(1)
+		}
 	case "version":
-		fmt.Println("winmux v0.2.0")
+		fmt.Println("winmux v0.3.0")
 	default:
 		fmt.Fprintf(os.Stderr, "Comando desconhecido: %s\n", os.Args[1])
 		printUsage()
@@ -302,6 +329,167 @@ func cmdWatch(args []string) {
 	fmt.Println("   (O callback será executado pelo daemon em background)")
 }
 
+// ── Job commands ──────────────────────────────────────────────────────────────
+
+func requireJobArgs(cmd string, min int) {
+	if len(os.Args) < min {
+		fmt.Fprintf(os.Stderr, "Uso: winmux %s\n", cmd)
+		os.Exit(1)
+	}
+}
+
+func cmdJobRun(sessionID, command string) {
+	resp, err := send(ipc.Request{Action: "job.run", ID: sessionID, Input: command})
+	if err != nil {
+		fatal(err)
+	}
+	var r ipc.ResponseJobRun
+	mustUnmarshal(resp, &r)
+	if r.Error != "" {
+		fatal(fmt.Errorf(r.Error))
+	}
+	fmt.Printf("✓ Job iniciado: %s\n", r.JobID)
+	fmt.Printf("  winmux job status %s\n", r.JobID)
+	fmt.Printf("  winmux job output %s\n", r.JobID)
+}
+
+func cmdJobStatus(jobID string) {
+	resp, err := send(ipc.Request{Action: "job.status", ID: jobID})
+	if err != nil {
+		fatal(err)
+	}
+	var r ipc.ResponseJobStatus
+	mustUnmarshal(resp, &r)
+	if r.Error != "" {
+		fatal(fmt.Errorf(r.Error))
+	}
+	j := r.Job
+	var prefix string
+	switch j.State {
+	case "running":
+		prefix = "⏳"
+	case "done":
+		prefix = "✓"
+	case "error":
+		prefix = "❌"
+	default:
+		prefix = "?"
+	}
+	elapsed := time.Since(j.StartedAt).Round(time.Second)
+	fmt.Printf("%s %s  sessão=%s  linhas=%d  tempo=%s\n", prefix, j.State, j.SessionID, j.Lines, elapsed)
+	if j.Error != "" {
+		fmt.Printf("  erro: %s\n", j.Error)
+	}
+}
+
+func cmdJobOutput(args []string) {
+	jobID := args[0]
+	tail := 0
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--tail" && i+1 < len(args) {
+			if n, err := strconv.Atoi(args[i+1]); err == nil {
+				tail = n
+			}
+			i++
+		}
+	}
+	resp, err := send(ipc.Request{Action: "job.output", ID: jobID, Lines: tail})
+	if err != nil {
+		fatal(err)
+	}
+	var r ipc.ResponseJobOutput
+	mustUnmarshal(resp, &r)
+	if r.Error != "" {
+		fatal(fmt.Errorf(r.Error))
+	}
+	for _, line := range r.Lines {
+		fmt.Println(line)
+	}
+}
+
+func cmdJobWait(args []string) {
+	jobID := args[0]
+	timeout := 0
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--timeout" && i+1 < len(args) {
+			// aceita "30m", "1h", ou segundos inteiros
+			s := args[i+1]
+			if d, err := time.ParseDuration(s); err == nil {
+				timeout = int(d.Seconds())
+			} else if n, err := strconv.Atoi(s); err == nil {
+				timeout = n
+			}
+			i++
+		}
+	}
+	fmt.Printf("⏳ Aguardando job %s", jobID)
+	if timeout > 0 {
+		fmt.Printf(" (timeout: %ds)", timeout)
+	}
+	fmt.Println("...")
+
+	resp, err := send(ipc.Request{Action: "job.wait", ID: jobID, Timeout: timeout})
+	if err != nil {
+		fatal(err)
+	}
+	var r ipc.ResponseJobStatus
+	mustUnmarshal(resp, &r)
+	if r.Error != "" {
+		fatal(fmt.Errorf(r.Error))
+	}
+	j := r.Job
+	switch j.State {
+	case "done":
+		fmt.Printf("✓ Concluído em %s (%d linhas de output)\n", j.EndedAt.Sub(j.StartedAt).Round(time.Second), j.Lines)
+	case "error":
+		fmt.Printf("❌ Erro: %s\n", j.Error)
+	case "running":
+		fmt.Println("⏸ Timeout atingido — job ainda em execução.")
+	}
+}
+
+func cmdJobList() {
+	resp, err := send(ipc.Request{Action: "job.list"})
+	if err != nil {
+		fatal(err)
+	}
+	var r ipc.ResponseJobList
+	mustUnmarshal(resp, &r)
+	if r.Error != "" {
+		fatal(fmt.Errorf(r.Error))
+	}
+	if len(r.Jobs) == 0 {
+		fmt.Println("Nenhum job ativo.")
+		return
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "JOB\tSESSÃO\tESTADO\tLINHAS\tTEMPO\tCOMANDO")
+	fmt.Fprintln(w, "───\t──────\t──────\t──────\t─────\t───────")
+	for _, j := range r.Jobs {
+		elapsed := time.Since(j.StartedAt).Round(time.Second)
+		cmd := j.Command
+		if len(cmd) > 40 {
+			cmd = cmd[:37] + "..."
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\n",
+			j.ID, j.SessionID, j.State, j.Lines, elapsed, cmd)
+	}
+	w.Flush()
+}
+
+func cmdJobKill(jobID string) {
+	resp, err := send(ipc.Request{Action: "job.kill", ID: jobID})
+	if err != nil {
+		fatal(err)
+	}
+	var r ipc.ResponseJobKill
+	mustUnmarshal(resp, &r)
+	if r.Error != "" {
+		fatal(fmt.Errorf(r.Error))
+	}
+	fmt.Printf("✓ Job %s cancelado.\n", jobID)
+}
+
 func cmdAttach(id string) {
 	// Attach usa streaming raw — conecta diretamente ao pipe
 	timeout := 3 * time.Second
@@ -383,6 +571,15 @@ Uso:
               [--on-waiting <cmd>]
               [--timeout <segundos>]
   winmux kill <id>                             Encerra sessão
+
+Jobs assíncronos (modo agente):
+  winmux job run <id> <comando>                Dispara comando async, retorna job ID
+  winmux job status <job-id>                   Estado: running | done | error
+  winmux job output <job-id> [--tail N]        Output acumulado do job
+  winmux job wait <job-id> [--timeout 30m]     Aguarda conclusão com timeout
+  winmux job list                              Lista todos os jobs ativos
+  winmux job kill <job-id>                     Cancela job em andamento
+
   winmux version                               Versão
 
 Exemplos:
