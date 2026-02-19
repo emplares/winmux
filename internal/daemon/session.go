@@ -7,14 +7,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/UserExistsError/conpty"
 )
 
-const bufferMaxLines = 10000
+var shellPaths = map[string]string{
+	"powershell": `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`,
+	"cmd":        `C:\Windows\System32\cmd.exe`,
+}
 
 // Session representa uma sessão ConPTY ativa.
 type Session struct {
@@ -28,17 +29,7 @@ type Session struct {
 	cpty   *conpty.ConPty
 	cancel context.CancelFunc
 
-	// Buffer circular de output (últimas N linhas)
-	mu              sync.RWMutex
-	buffer          []string
-	line            []byte
-	LastStateChange time.Time
-	lastState       string
-}
-
-var shellPaths = map[string]string{
-	"powershell": `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`,
-	"cmd":        `C:\Windows\System32\cmd.exe`,
+	sessionBuffer // buffer circular de output + DetectState
 }
 
 // NewSession cria e inicia uma sessão ConPTY.
@@ -59,23 +50,19 @@ func NewSession(id, shell string) (*Session, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Session{
-		ID:              id,
-		PID:             cpty.Pid(),
-		Shell:           shell,
-		Dir:             `C:\`,
-		CreatedAt:       time.Now(),
-		Status:          "active",
-		cpty:            cpty,
-		cancel:          cancel,
-		buffer:          make([]string, 0, 256),
-		LastStateChange: time.Now(),
-		lastState:       "idle",
+		ID:            id,
+		PID:           cpty.Pid(),
+		Shell:         shell,
+		Dir:           `C:\`,
+		CreatedAt:     time.Now(),
+		Status:        "active",
+		cpty:          cpty,
+		cancel:        cancel,
+		sessionBuffer: newSessionBuffer(),
 	}
 
-	// Captura output e armazena no buffer
 	go s.captureOutput(ctx)
 
-	// Monitora encerramento do processo
 	go func() {
 		cpty.Wait(ctx)
 		s.Status = "dead"
@@ -99,55 +86,19 @@ func (s *Session) captureOutput(ctx context.Context) {
 			s.appendOutput(buf[:n])
 		}
 		if err != nil {
-			if err != io.EOF {
-				return
-			}
 			return
-		}
-	}
-}
-
-// appendOutput adiciona bytes ao buffer de linhas.
-func (s *Session) appendOutput(data []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, b := range data {
-		if b == '\n' {
-			s.buffer = append(s.buffer, string(s.line))
-			s.line = s.line[:0]
-			if len(s.buffer) > bufferMaxLines {
-				s.buffer = s.buffer[1:]
-			}
-		} else {
-			s.line = append(s.line, b)
 		}
 	}
 }
 
 // ReadBuffer retorna as últimas n linhas do buffer de output.
 func (s *Session) ReadBuffer(n int) []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if n <= 0 || n > len(s.buffer) {
-		n = len(s.buffer)
-	}
-	lines := make([]string, n)
-	copy(lines, s.buffer[len(s.buffer)-n:])
-	return lines
+	return s.readBuffer(n)
 }
 
-// Logs retorna o histórico completo do buffer (ou últimas 500 linhas se muito grande).
+// Logs retorna o histórico completo do buffer (últimas 500 linhas).
 func (s *Session) Logs() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	const maxLogs = 500
-	n := len(s.buffer)
-	if n > maxLogs {
-		n = maxLogs
-	}
-	lines := make([]string, n)
-	copy(lines, s.buffer[len(s.buffer)-n:])
-	return lines
+	return s.logs()
 }
 
 // Send injeta texto + Enter na sessão.
@@ -156,50 +107,46 @@ func (s *Session) Send(input string) error {
 	return err
 }
 
-// Submit injeta texto + Enter explícito — idêntico ao Send mas semântica clara para TUIs.
-// Útil para Gemini CLI, Codex CLI e outros TUIs que precisam de Enter para submeter.
+// Submit injeta texto + Enter — semântica explícita para TUIs.
 func (s *Session) Submit(input string) error {
 	return s.Send(input)
 }
 
 // Reset envia Ctrl+C seguido de Enter para limpar estado de continuação ">>" no PowerShell.
 func (s *Session) Reset() error {
-	// Ctrl+C
 	if _, err := s.cpty.Write([]byte{0x03}); err != nil {
 		return err
 	}
 	time.Sleep(100 * time.Millisecond)
-	// Enter para limpar prompt
 	_, err := s.cpty.Write([]byte("\r\n"))
 	return err
 }
 
 // keySequences mapeia nomes de teclas para sequências de bytes.
 var keySequences = map[string][]byte{
-	"esc":    {0x1b},
-	"escape": {0x1b},
-	"ctrl+c": {0x03},
-	"ctrl+d": {0x04},
-	"ctrl+z": {0x1a},
-	"ctrl+l": {0x0c},
-	"ctrl+a": {0x01},
-	"ctrl+e": {0x05},
-	"tab":    {0x09},
-	"enter":  {0x0d},
-	"up":     {0x1b, 0x5b, 0x41}, // ESC [ A
-	"down":   {0x1b, 0x5b, 0x42}, // ESC [ B
-	"right":  {0x1b, 0x5b, 0x43}, // ESC [ C
-	"left":   {0x1b, 0x5b, 0x44}, // ESC [ D
-	"home":   {0x1b, 0x5b, 0x48}, // ESC [ H
-	"end":    {0x1b, 0x5b, 0x46}, // ESC [ F
-	"pgup":   {0x1b, 0x5b, 0x35, 0x7e}, // ESC [ 5 ~
-	"pgdn":   {0x1b, 0x5b, 0x36, 0x7e}, // ESC [ 6 ~
-	"delete": {0x1b, 0x5b, 0x33, 0x7e}, // ESC [ 3 ~
-	"backspace": {0x7f},
+	"esc":        {0x1b},
+	"escape":     {0x1b},
+	"ctrl+c":     {0x03},
+	"ctrl+d":     {0x04},
+	"ctrl+z":     {0x1a},
+	"ctrl+l":     {0x0c},
+	"ctrl+a":     {0x01},
+	"ctrl+e":     {0x05},
+	"tab":        {0x09},
+	"enter":      {0x0d},
+	"up":         {0x1b, 0x5b, 0x41},
+	"down":       {0x1b, 0x5b, 0x42},
+	"right":      {0x1b, 0x5b, 0x43},
+	"left":       {0x1b, 0x5b, 0x44},
+	"home":       {0x1b, 0x5b, 0x48},
+	"end":        {0x1b, 0x5b, 0x46},
+	"pgup":       {0x1b, 0x5b, 0x35, 0x7e},
+	"pgdn":       {0x1b, 0x5b, 0x36, 0x7e},
+	"delete":     {0x1b, 0x5b, 0x33, 0x7e},
+	"backspace":  {0x7f},
 }
 
 // SendKey envia uma tecla especial para a sessão pelo nome.
-// Exemplos: "ctrl+c", "esc", "up", "down", "tab", "enter"
 func (s *Session) SendKey(key string) error {
 	seq, ok := keySequences[strings.ToLower(key)]
 	if !ok {
@@ -209,166 +156,8 @@ func (s *Session) SendKey(key string) error {
 	return err
 }
 
-// stripAnsi remove sequências de escape ANSI de uma string.
-func stripAnsi(s string) string {
-	var b strings.Builder
-	i := 0
-	for i < len(s) {
-		r, size := utf8.DecodeRuneInString(s[i:])
-		_ = r
-		if s[i] == '\x1b' {
-			// Pula sequência ESC
-			i++
-			if i < len(s) && s[i] == '[' {
-				// CSI sequence: ESC [ ... final
-				i++
-				for i < len(s) && (s[i] < 0x40 || s[i] > 0x7e) {
-					i++
-				}
-				if i < len(s) {
-					i++ // consome final
-				}
-			} else if i < len(s) && s[i] == ']' {
-				// OSC sequence: ESC ] ... BEL or ST
-				i++
-				for i < len(s) && s[i] != '\x07' && !(s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '\\') {
-					i++
-				}
-				if i < len(s) {
-					i++
-				}
-			}
-		} else {
-			b.WriteByte(s[i])
-			i += size
-		}
-	}
-	return b.String()
-}
-
-// spinnerChars são os caracteres braille de spinner usados por CLIs modernos.
-const spinnerChars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
-// asciiSpinnerChars são os spinners ASCII usados pelo npm/outros.
-const asciiSpinnerChars = `\|/-`
-
-// waitingPhrases são frases que indicam que a sessão aguarda input do usuário.
-var waitingPhrases = []string{
-	"do you trust",
-	"press enter to continue",
-	"press enter",
-	"(y/n)",
-	"[y/n]",
-	"trust folder",
-	"trust parent",
-	"don't trust",
-	"update available",
-	"? for shortcuts",
-	"press esc",
-}
-
-// DetectState analisa o buffer recente e retorna o estado da sessão.
-// Retorna: ("idle"|"busy"|"waiting", detail)
-func (s *Session) DetectState() (state, detail string) {
-	s.mu.RLock()
-	lines := s.buffer
-	s.mu.RUnlock()
-
-	if len(lines) == 0 {
-		return "idle", ""
-	}
-
-	// Analisa as últimas 20 linhas (ou menos)
-	lookback := 20
-	if len(lines) < lookback {
-		lookback = len(lines)
-	}
-	recent := lines[len(lines)-lookback:]
-
-	// Junta tudo numa string para busca
-	combined := strings.ToLower(strings.Join(recent, "\n"))
-	combinedStripped := stripAnsi(combined)
-
-	// 1. Detecta spinner (busy)
-	for _, ch := range spinnerChars {
-		if strings.ContainsRune(combined, ch) {
-			// Tenta extrair tempo restante (ex: "5m 44s")
-			detail = extractTimeHint(combinedStripped)
-			return "busy", detail
-		}
-	}
-
-	// Spinner ASCII: só conta se aparecer múltiplas vezes seguidas (padrão de animação)
-	asciiSpinCount := 0
-	for _, ch := range asciiSpinnerChars {
-		asciiSpinCount += strings.Count(combined, string(ch))
-	}
-	if asciiSpinCount > 10 {
-		detail = extractTimeHint(combinedStripped)
-		return "busy", detail
-	}
-
-	// 2. Detecta waiting (aguardando input)
-	for _, phrase := range waitingPhrases {
-		if strings.Contains(combinedStripped, phrase) {
-			// Extrai opções visíveis se existirem
-			detail = extractOptions(recent)
-			return "waiting", detail
-		}
-	}
-
-	// 3. Detecta modo de continuação ">>" do PowerShell
-	lastLine := stripAnsi(strings.TrimSpace(lines[len(lines)-1]))
-	if lastLine == ">>" || strings.HasSuffix(lastLine, ">> ") {
-		return "waiting", "PowerShell continuation mode (>>). Use: winmux reset <id>"
-	}
-
-	// 4. Idle — prompt disponível
-	return "idle", ""
-}
-
-// extractTimeHint tenta extrair uma estimativa de tempo de uma string (ex: "5m 44s").
-func extractTimeHint(s string) string {
-	// Procura padrões como "5m 44s", "2m", "30s"
-	words := strings.Fields(s)
-	for i, w := range words {
-		if len(w) > 1 && w[len(w)-1] == 's' && isDigits(w[:len(w)-1]) {
-			if i > 0 && len(words[i-1]) > 1 && words[i-1][len(words[i-1])-1] == 'm' {
-				return words[i-1] + " " + w + " remaining"
-			}
-			return w + " remaining"
-		}
-	}
-	return ""
-}
-
-// extractOptions extrai opções numeradas visíveis do buffer (ex: "1. Trust folder").
-func extractOptions(lines []string) string {
-	var opts []string
-	for _, l := range lines {
-		stripped := stripAnsi(strings.TrimSpace(l))
-		if len(stripped) > 2 && (stripped[0] >= '1' && stripped[0] <= '9') && stripped[1] == '.' {
-			opts = append(opts, stripped)
-		}
-	}
-	if len(opts) > 0 {
-		return strings.Join(opts, " | ")
-	}
-	return ""
-}
-
-func isDigits(s string) bool {
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return len(s) > 0
-}
-
 // Attach conecta um writer ao output e um reader ao input da sessão (streaming).
 func (s *Session) Attach(w io.Writer, r io.Reader, done chan struct{}) {
-	// Output da sessão → writer (cliente)
 	go func() {
 		buf := make([]byte, 4096)
 		for {
@@ -382,7 +171,6 @@ func (s *Session) Attach(w io.Writer, r io.Reader, done chan struct{}) {
 			}
 		}
 	}()
-	// Input do reader (cliente) → stdin da sessão
 	go func() {
 		buf := make([]byte, 256)
 		for {

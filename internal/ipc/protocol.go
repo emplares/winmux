@@ -73,9 +73,9 @@ type ResponseKill struct {
 
 // ResponseStatus é a resposta ao comando "status".
 type ResponseStatus struct {
-	State  string `json:"state"`            // "idle", "busy", "waiting"
-	Detail string `json:"detail,omitempty"` // ex: "5m 44s remaining"
-	Error  string `json:"error,omitempty"`
+	State  string `json:"state"`            // "idle", "busy", "waiting", "error"
+	Detail string `json:"detail,omitempty"` // ex: "5m 44s remaining" ou linha de erro
+	Error  string `json:"error,omitempty"`  // erro de protocolo (não confundir com State=="error")
 }
 
 // ResponseWatch é a resposta ao comando "watch" (confirmação de início).

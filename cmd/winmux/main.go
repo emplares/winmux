@@ -184,10 +184,26 @@ func cmdStatus(id string) {
 	if r.Error != "" {
 		fatal(fmt.Errorf(r.Error))
 	}
+
+	// Escolhe emoji/prefixo de acordo com o estado
+	var prefix string
+	switch r.State {
+	case "idle":
+		prefix = "✓"
+	case "busy":
+		prefix = "⏳"
+	case "waiting":
+		prefix = "⏸"
+	case "error":
+		prefix = "❌"
+	default:
+		prefix = "?"
+	}
+
 	if r.Detail != "" {
-		fmt.Printf("%s (%s)\n", r.State, r.Detail)
+		fmt.Printf("%s %s (%s)\n", prefix, r.State, r.Detail)
 	} else {
-		fmt.Println(r.State)
+		fmt.Printf("%s %s\n", prefix, r.State)
 	}
 }
 
