@@ -16,8 +16,10 @@ No Windows, não existe forma elegante de:
 
 Soluções existentes exigem WSL (Linux), VNC (pesado), ou gambiarras com ConPTY sem abstração.
 
-**Caso de uso real que originou o projeto:**  
-Um usuário tinha o Codex CLI e o Gemini CLI rodando em PowerShell numa máquina remota e precisava enviar prompts remotamente (por exemplo: WhatsApp → SSH → winmux → TUI). Não havia uma forma limpa de realizar esse fluxo de trabalho, o que motivou o desenvolvimento do winmux.
+## Caso de uso real que originou o projeto:
+
+Um usuário tinha o codex CLI e o Gemini CLI rodando em PowerShell numa máquina remota e precisava enviar prompts remotamente (ex - Zap - OpenClaw - SSH - winmux -> TUI) Não achei forma limpa de realizar esse fluxo, o que motivou o desenvolvimento do winmux. 
+
 ---
 
 ## Objetivo
