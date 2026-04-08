@@ -213,18 +213,6 @@ O daemon analisa o buffer de output da sessão e detecta:
 - [x] `winmux logs <id>` — histórico completo da sessão (até 500 linhas)
 - [x] `winmux key <id> <tecla>` — enviar teclas especiais (Ctrl+C, Escape, setas)
 - [x] `winmux job *` — modo assíncrono para agentes de IA (v0.3.0)
-- [ ] Detecção de estado mais robusta (ML leve sobre o buffer)
-- [ ] Suporte a WSL
-
----
-
-## Origem
-
-> "Eu gosto de coisas hack, mas é óbvio que é melhor uma solução mais elegante.
-> Esses momentos hacky são possíveis projetos — desenvolver e colocar no GitHub."
-> — Christian, 2026-02-18
-
-Desenvolvido por Christian + Emplares em Garopaba, SC.
 
 ---
 
