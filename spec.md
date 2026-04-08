@@ -17,8 +17,7 @@ No Windows, não existe forma elegante de:
 Soluções existentes exigem WSL (Linux), VNC (pesado), ou gambiarras com ConPTY sem abstração.
 
 **Caso de uso real que originou o projeto:**  
-Christian estava com o Codex CLI e o Gemini CLI rodando no PowerShell do Vaio/Beelink. Queria enviar prompts remotamente, via WhatsApp → Emplares → SSH → winmux → TUI. Não havia forma limpa de fazer isso.
-
+Um usuário tinha o Codex CLI e o Gemini CLI rodando em PowerShell numa máquina remota e precisava enviar prompts remotamente (por exemplo: WhatsApp → SSH → winmux → TUI). Não havia uma forma limpa de realizar esse fluxo de trabalho, o que motivou o desenvolvimento do winmux.
 ---
 
 ## Objetivo
@@ -153,9 +152,3 @@ Não são dois daemons — é um único daemon com dois modos de interface:
 100% retrocompatível — comandos existentes não mudam.
 
 ---
-
-## Notas
-
-> "Eu gosto de coisas hack, mas é óbvio que é melhor uma solução mais elegante.  
-> Esses momentos hacky são possíveis projetos — desenvolver e colocar no GitHub."  
-> — Christian, 2026-02-18
