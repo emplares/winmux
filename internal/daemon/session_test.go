@@ -71,23 +71,28 @@ func TestDetectState_BusyAllBrailleSpinners(t *testing.T) {
 }
 
 func TestDetectState_BusyAsciiSpinner(t *testing.T) {
-	// Precisa de mais de 10 chars de spinner ASCII para disparar
-	sb := newTestBuf(
-		`\ loading`,
-		`| loading`,
-		`/ loading`,
-		`- loading`,
-		`\ loading`,
-		`| loading`,
-		`/ loading`,
-		`- loading`,
-		`\ loading`,
-		`| loading`,
-		`/ loading`,
-	)
-	state, _ := sb.DetectState()
-	if state != "busy" {
-		t.Errorf("spinner ASCII: esperava 'busy', obteve %q", state)
+	// frames redesenhados no lugar: com \r (app) e com posicionamento de cursor (ConPTY)
+	for _, out := range []string{
+		"\r\\ loading\r| loading\r/ loading\r- loading",
+		"\x1b[5;1H|\x1b[5;1H/\x1b[5;1H-\x1b[5;1H\\",
+	} {
+		sb := newSessionBuffer()
+		sb.appendOutput([]byte(out))
+		if state, _ := sb.DetectState(); state != "busy" {
+			t.Errorf("spinner %q: esperava 'busy', obteve %q", out, state)
+		}
+	}
+}
+
+// Regressão: caminhos, cmdlets e listas não são spinner (visto no CI Windows).
+func TestDetectState_PathsAndDashesAreIdle(t *testing.T) {
+	sb := newSessionBuffer()
+	sb.appendOutput([]byte("\x1b]0;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\x07" +
+		"PS C:\\Users\\runneradmin> Write-Output ('winmux' + '-ok')\r\nwinmux-ok\r\n" +
+		"- item um\r\n- item dois\r\n- item três\r\nC:\\a\\b\\c\\d\\e\\f\r\n" +
+		"PS C:\\Users\\runneradmin> "))
+	if state, _ := sb.DetectState(); state != "idle" {
+		t.Errorf("esperava 'idle', obteve %q", state)
 	}
 }
 

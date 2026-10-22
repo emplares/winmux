@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -175,12 +176,10 @@ func (sb *sessionBuffer) DetectState() (state, detail string) {
 		}
 	}
 
-	// Spinner ASCII: conta se aparecer muitas vezes (padrão de animação)
-	asciiSpinCount := 0
-	for _, ch := range asciiSpinnerChars {
-		asciiSpinCount += strings.Count(combined, string(ch))
-	}
-	if asciiSpinCount > 10 {
+	// Spinner ASCII: só conta \ | / - redesenhado no mesmo lugar (após \r,
+	// backspace ou movimento de cursor do ConPTY). Contar esses chars soltos
+	// marcava como busy qualquer sessão com caminhos (C:\Users) ou cmdlets.
+	if len(asciiSpinnerRe.FindAllStringIndex(combined, 3)) >= 3 {
 		detail = extractTimeHint(combinedStripped)
 		return "busy", detail
 	}
@@ -243,8 +242,9 @@ func (sb *sessionBuffer) DetectState() (state, detail string) {
 // spinnerChars são os caracteres braille de spinner usados por CLIs modernos.
 const spinnerChars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-// asciiSpinnerChars são os spinners ASCII usados pelo npm/outros.
-const asciiSpinnerChars = `\|/-`
+// asciiSpinnerRe casa um frame de spinner ASCII (npm e outros): o char logo
+// após \r, backspace ou um CSI de posicionamento de cursor (texto já em minúsculas).
+var asciiSpinnerRe = regexp.MustCompile("(?:\r|\x08|\x1b\\[[0-9;]*[HGCDFhgcdf])[\\\\|/-]")
 
 // waitingPhrases são frases que indicam que a sessão aguarda input do usuário.
 // Nota: todas em minúsculas — a comparação usa combinedStripped (lowercase).
