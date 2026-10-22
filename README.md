@@ -11,7 +11,7 @@ A small daemon keeps PowerShell or cmd sessions alive in ConPTY, Windows' native
 
 ## Why it exists
 
-I had Codex CLI and Gemini CLI running in PowerShell on a Windows laptop and wanted a cloud agent to send them prompts, from a chat message through SSH into the running terminal UI. On Linux that's `tmux send-keys` and `tmux capture-pane`. Windows has nothing like it: OpenSSH gives you a fresh shell each time, and there's no way to type into a terminal session that's already running.
+It started with Codex CLI and Gemini CLI running in PowerShell on a Windows laptop, and a cloud agent that needed to send them prompts: from a chat message, through SSH, into the terminal UI that was already running. On Linux that's `tmux send-keys` and `tmux capture-pane`. Windows has nothing like it: OpenSSH gives you a fresh shell each time, and there's no way to type into a terminal session that's already running.
 
 ```
 chat ─► cloud agent ─► ssh ─► winmux.exe ─► \\.\pipe\winmux ─► winmux-daemon.exe ─► ConPTY ─► PowerShell / Codex / Gemini

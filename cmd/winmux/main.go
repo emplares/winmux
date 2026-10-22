@@ -441,7 +441,11 @@ func cmdJobWait(args []string) {
 	j := r.Job
 	switch j.State {
 	case "done":
-		fmt.Printf("✓ Done in %s (%d lines of output)\n", j.EndedAt.Sub(j.StartedAt).Round(time.Second), j.Lines)
+		unit := "lines"
+		if j.Lines == 1 {
+			unit = "line"
+		}
+		fmt.Printf("✓ Done in %s (%d %s of output)\n", j.EndedAt.Sub(j.StartedAt).Round(time.Second), j.Lines, unit)
 	case "error":
 		fmt.Printf("❌ Error: %s\n", j.Error)
 	case "running":
