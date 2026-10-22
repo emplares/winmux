@@ -23,34 +23,35 @@ This is a real transcript from the CI smoke test on a GitHub `windows-latest` ru
 
 ```powershell
 PS> winmux new
-✓ Sessão criada: ec3f2a (PID 1576)
+✓ Session created: 340b9b (PID 6352)
 
 PS> winmux list
 ID      PID   SHELL       STATUS  UPTIME  DIR
 ──      ───   ─────       ──────  ──────  ───
-ec3f2a  1576  powershell  active  3s      C:\Users\runneradmin
+340b9b  6352  powershell  active  3s      C:\Users\runneradmin
 
-PS> winmux job run ec3f2a "Start-Sleep 2; Write-Output ('smoke' + '-ok')"   # returns immediately
-✓ Job iniciado: b9ea70
+PS> winmux job run 340b9b "Start-Sleep 2; Write-Output ('smoke' + '-ok')"   # returns immediately
+✓ Job started: fca4e0
 
-PS> winmux job wait b9ea70 --timeout 60s       # or poll: winmux job status b9ea70
-✓ Concluído em 4s (1 linhas de output)
+PS> winmux job wait fca4e0 --timeout 60s       # or poll: winmux job status fca4e0
+⏳ Waiting for job fca4e0 (timeout: 60s)...
+✓ Done in 4s (1 line of output)
 
-PS> winmux job output b9ea70                   # only what this command printed, ANSI-free
+PS> winmux job output fca4e0                   # only what this command printed, ANSI-free
 smoke-ok
 
-PS> winmux status ec3f2a
+PS> winmux status 340b9b
 ✓ idle
 ```
 
 Driving a TUI uses the same session:
 
 ```powershell
-winmux send ec3f2a "codex"                     # start the TUI
-winmux submit ec3f2a "summarize the failing tests"
-winmux status ec3f2a                           # busy while it works, waiting on a prompt, with the options it shows
-winmux key ec3f2a enter                        # answer a menu
-winmux read ec3f2a 40                          # read the screen
+winmux send 340b9b "codex"                     # start the TUI
+winmux submit 340b9b "summarize the failing tests"
+winmux status 340b9b                           # busy while it works, waiting on a prompt, with the options it shows
+winmux key 340b9b enter                        # answer a menu
+winmux read 340b9b 40                          # read the screen
 ```
 
 ## Install
