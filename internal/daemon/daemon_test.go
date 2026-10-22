@@ -680,14 +680,14 @@ func TestJob_CollectsOnlyNewOutputUntilPrompt(t *testing.T) {
 	m.lines = []string{"histórico antigo"}
 	m.echo = true
 
-	run := mustHandle[ipc.ResponseJobRun](t, d, ipc.Request{Action: "job.run", ID: id, Input: "dir"})
+	run := mustHandle[ipc.ResponseJobRun](t, d, ipc.Request{Action: "job.run", ID: id, Input: "\x1b[93mdir"})
 	wait := mustHandle[ipc.ResponseJobStatus](t, d, ipc.Request{Action: "job.wait", ID: run.JobID, Timeout: 10})
 	if wait.Job.State != "done" {
 		t.Fatalf("job: esperava done, obteve %q (%s)", wait.Job.State, wait.Job.Error)
 	}
 	out := mustHandle[ipc.ResponseJobOutput](t, d, ipc.Request{Action: "job.output", ID: run.JobID})
 	if got := strings.Join(out.Lines, "|"); got != "out:dir" {
-		t.Errorf("job output: esperava só a linha nova, obteve %q", got)
+		t.Errorf("job output: esperava só a linha nova, sem ANSI, obteve %q", got)
 	}
 }
 

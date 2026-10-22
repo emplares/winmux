@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -321,6 +322,9 @@ func (d *Daemon) handleJobRun(req ipc.Request) (*ipc.ResponseJobRun, error) {
 	collect := func() {
 		lines, next := sess.ReadSince(cursor)
 		cursor = next
+		for i, l := range lines {
+			lines[i] = strings.TrimRight(stripAnsi(l), " ") // modo agente: texto limpo, sem cores/cursor
+		}
 		if len(lines) > 0 {
 			j.mu.Lock()
 			j.output = append(j.output, lines...)
