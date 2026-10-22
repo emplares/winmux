@@ -92,7 +92,7 @@ func (m *mockSession) Send(input string) error {
 	defer m.mu.Unlock()
 	m.sent = append(m.sent, input)
 	if m.echo && m.sendErr == nil {
-		m.lines = append(m.lines, "out:"+input)
+		m.lines = append(m.lines, "PS C:\\> "+input, "out:"+input) // eco + output
 		m.prompt = true
 	}
 	return m.sendErr

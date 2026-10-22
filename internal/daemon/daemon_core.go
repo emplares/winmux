@@ -318,10 +318,13 @@ func (d *Daemon) handleJobRun(req ipc.Request) (*ipc.ResponseJobRun, error) {
 		j.mu.Unlock()
 	}
 	// cursor absoluto: só entra no job o que a sessão imprimir depois do envio.
+	// A primeira linha completa é a do prompt com o comando digitado (eco) — fica de fora.
+	// ponytail: comando longo que quebra em várias linhas de tela deixa eco extra; contar colunas se incomodar.
 	_, cursor := sess.ReadSince(math.MaxInt)
+	cursor++
 	collect := func() {
 		lines, next := sess.ReadSince(cursor)
-		cursor = next
+		cursor = max(cursor, next)
 		for i, l := range lines {
 			lines[i] = strings.TrimRight(stripAnsi(l), " ") // modo agente: texto limpo, sem cores/cursor
 		}
