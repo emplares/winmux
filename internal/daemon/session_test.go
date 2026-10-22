@@ -3,6 +3,9 @@
 package daemon
 
 import (
+	"bytes"
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -289,5 +292,68 @@ func TestLogs_MaxLines(t *testing.T) {
 	logs := sb.logs()
 	if len(logs) != 500 {
 		t.Errorf("logs deveria limitar a 500, obteve %d", len(logs))
+	}
+}
+
+// ---------- attach fan-out, cursor, prompt ----------
+
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errors.New("cliente saiu") }
+
+func TestSubscribe_FanOutKeepsBuffer(t *testing.T) {
+	sb := newSessionBuffer()
+	var got bytes.Buffer
+	unsub := sb.subscribe(&got)
+	sb.subscribe(failWriter{}) // cliente desconectado deve ser descartado, não travar
+	sb.appendOutput([]byte("a\r\nb\n"))
+	unsub()
+	sb.appendOutput([]byte("c\n"))
+
+	if got.String() != "a\r\nb\n" {
+		t.Errorf("attach recebeu %q", got.String())
+	}
+	if lines := sb.readBuffer(10); strings.Join(lines, "|") != "a|b|c" {
+		t.Errorf("buffer perdeu output durante attach: %q", lines)
+	}
+	if len(sb.subs) != 0 {
+		t.Errorf("esperava 0 assinantes, obteve %d", len(sb.subs))
+	}
+}
+
+func TestReadSince_SurvivesRingBuffer(t *testing.T) {
+	sb := newSessionBuffer()
+	for i := 0; i < bufferMaxLines+5; i++ {
+		sb.appendLine("x")
+	}
+	_, cursor := sb.ReadSince(1 << 62)
+	sb.appendLine("novo")
+	lines, next := sb.ReadSince(cursor)
+	if len(lines) != 1 || lines[0] != "novo" || next != cursor+1 {
+		t.Errorf("ReadSince: %q next=%d cursor=%d", lines, next, cursor)
+	}
+	if lines, _ := sb.ReadSince(0); len(lines) != bufferMaxLines {
+		t.Errorf("cursor antigo deveria cair no início do buffer, obteve %d linhas", len(lines))
+	}
+}
+
+func TestPromptAndPartialLine(t *testing.T) {
+	sb := newSessionBuffer()
+	sb.appendOutput([]byte("saida\r\nPS C:\\Users\\dev> \x1b[?25h"))
+	if !sb.PromptVisible() {
+		t.Error("prompt do PowerShell na linha corrente não detectado")
+	}
+	sb.appendOutput([]byte("Start-Sleep 5\r\n"))
+	if sb.PromptVisible() {
+		t.Error("linha vazia após Enter não é prompt")
+	}
+	sb.appendOutput([]byte("Continuar? (y/n) "))
+	if state, _ := sb.DetectState(); state != "waiting" {
+		t.Errorf("pergunta sem '\\n' deveria dar waiting, obteve %q", state)
+	}
+	sb2 := newSessionBuffer()
+	sb2.appendOutput([]byte("if ($true) {\r\n>> "))
+	if state, _ := sb2.DetectState(); state != "waiting" || sb2.PromptVisible() {
+		t.Errorf("'>> ' deveria ser waiting e não prompt; state=%q", state)
 	}
 }

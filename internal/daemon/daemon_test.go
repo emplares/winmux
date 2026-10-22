@@ -5,6 +5,8 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +17,9 @@ import (
 
 // mockSession implementa ISession para testes sem ConPTY.
 type mockSession struct {
+	mu        sync.Mutex // jobs leem a sessão de outra goroutine
+	prompt    bool       // PromptVisible
+	echo      bool       // Send acrescenta "out:<input>" às linhas e mostra o prompt
 	id        string
 	pid       int
 	shell     string
@@ -55,7 +60,22 @@ func (m *mockSession) GetStatus() string       { return m.status }
 func (m *mockSession) DetectState() (string, string) {
 	return m.state, m.detail
 }
+func (m *mockSession) ReadSince(cursor int) ([]string, int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cursor >= len(m.lines) {
+		return nil, len(m.lines)
+	}
+	return append([]string(nil), m.lines[cursor:]...), len(m.lines)
+}
+func (m *mockSession) PromptVisible() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.prompt
+}
 func (m *mockSession) ReadBuffer(n int) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if n <= 0 || n > len(m.lines) {
 		return m.lines
 	}
@@ -68,7 +88,13 @@ func (m *mockSession) Logs() []string {
 	return m.lines
 }
 func (m *mockSession) Send(input string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sent = append(m.sent, input)
+	if m.echo && m.sendErr == nil {
+		m.lines = append(m.lines, "out:"+input)
+		m.prompt = true
+	}
 	return m.sendErr
 }
 func (m *mockSession) Submit(input string) error {
@@ -84,9 +110,12 @@ func (m *mockSession) Close() { m.closed = true }
 
 // mockFactory retorna uma factory que cria mockSessions rastreáveis.
 func mockFactory(sessions map[string]*mockSession) SessionFactory {
+	var mu sync.Mutex // a factory é chamada em paralelo por TestDaemon_ConcurrentNew
 	return func(id, shell string) (ISession, error) {
 		s := newMockSession(id, shell)
+		mu.Lock()
 		sessions[id] = s
+		mu.Unlock()
 		return s, nil
 	}
 }
@@ -640,3 +669,42 @@ var _ ISession = (*mockSession)(nil)
 
 // Evita "imported and not used" se nenhum teste usar fmt diretamente.
 var _ = fmt.Sprintf
+
+// ---------- jobs ----------
+
+func TestJob_CollectsOnlyNewOutputUntilPrompt(t *testing.T) {
+	created := map[string]*mockSession{}
+	d := NewWithFactory(mockFactory(created))
+	id := mustHandle[ipc.ResponseNew](t, d, ipc.Request{Action: "new"}).SessionID
+	m := created[id]
+	m.lines = []string{"histórico antigo"}
+	m.echo = true
+
+	run := mustHandle[ipc.ResponseJobRun](t, d, ipc.Request{Action: "job.run", ID: id, Input: "dir"})
+	wait := mustHandle[ipc.ResponseJobStatus](t, d, ipc.Request{Action: "job.wait", ID: run.JobID, Timeout: 10})
+	if wait.Job.State != "done" {
+		t.Fatalf("job: esperava done, obteve %q (%s)", wait.Job.State, wait.Job.Error)
+	}
+	out := mustHandle[ipc.ResponseJobOutput](t, d, ipc.Request{Action: "job.output", ID: run.JobID})
+	if got := strings.Join(out.Lines, "|"); got != "out:dir" {
+		t.Errorf("job output: esperava só a linha nova, obteve %q", got)
+	}
+}
+
+func TestJob_NotDoneWithoutPrompt(t *testing.T) {
+	created := map[string]*mockSession{}
+	d := NewWithFactory(mockFactory(created))
+	id := mustHandle[ipc.ResponseNew](t, d, ipc.Request{Action: "new"}).SessionID
+
+	// idle mas sem prompt (ex: Start-Sleep em andamento) => continua running
+	run := mustHandle[ipc.ResponseJobRun](t, d, ipc.Request{Action: "job.run", ID: id, Input: "Start-Sleep 60"})
+	wait := mustHandle[ipc.ResponseJobStatus](t, d, ipc.Request{Action: "job.wait", ID: run.JobID, Timeout: 3})
+	if wait.Job.State != "running" {
+		t.Fatalf("job: esperava running, obteve %q", wait.Job.State)
+	}
+	kill := mustHandle[ipc.ResponseJobKill](t, d, ipc.Request{Action: "job.kill", ID: run.JobID})
+	if !kill.OK {
+		t.Fatalf("job.kill falhou: %s", kill.Error)
+	}
+	mustHandle[ipc.ResponseJobKill](t, d, ipc.Request{Action: "job.kill", ID: run.JobID}) // segundo kill não pode dar panic
+}

@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -16,29 +17,38 @@ const bufferMaxLines = 10000
 type sessionBuffer struct {
 	mu              sync.RWMutex
 	buffer          []string
-	line            []byte
+	line            []byte // linha corrente ainda sem '\n' (ex: o prompt "PS C:\> ")
+	total           int    // linhas completas já vistas desde o início (cursor absoluto)
+	subs            map[int]io.Writer
+	nextSub         int
 	LastStateChange time.Time
 	lastState       string
 }
 
 func newSessionBuffer() sessionBuffer {
 	return sessionBuffer{
+		subs:            map[int]io.Writer{},
 		LastStateChange: time.Now(),
 		lastState:       "idle",
 	}
 }
 
-// appendOutput adiciona bytes ao buffer de linhas (thread-safe).
+// appendOutput adiciona bytes ao buffer de linhas e repassa o output bruto
+// aos clientes em attach (thread-safe). captureOutput é o único leitor do
+// ConPTY; attach recebe uma cópia em vez de competir pela leitura.
 func (sb *sessionBuffer) appendOutput(data []byte) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
+	// ponytail: escrita síncrona — um cliente lento em attach atrasa a captura; fila por cliente se isso aparecer.
+	for id, w := range sb.subs {
+		if _, err := w.Write(data); err != nil {
+			delete(sb.subs, id)
+		}
+	}
 	for _, b := range data {
 		if b == '\n' {
-			sb.buffer = append(sb.buffer, string(sb.line))
+			sb.pushLine(strings.TrimSuffix(string(sb.line), "\r"))
 			sb.line = sb.line[:0]
-			if len(sb.buffer) > bufferMaxLines {
-				sb.buffer = sb.buffer[1:]
-			}
 		} else {
 			sb.line = append(sb.line, b)
 		}
@@ -49,10 +59,61 @@ func (sb *sessionBuffer) appendOutput(data []byte) {
 func (sb *sessionBuffer) appendLine(line string) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
+	sb.pushLine(line)
+}
+
+// pushLine exige sb.mu travado.
+func (sb *sessionBuffer) pushLine(line string) {
 	sb.buffer = append(sb.buffer, line)
+	sb.total++
 	if len(sb.buffer) > bufferMaxLines {
 		sb.buffer = sb.buffer[1:]
 	}
+}
+
+// subscribe registra w para receber o output bruto; devolve a função que cancela.
+func (sb *sessionBuffer) subscribe(w io.Writer) (unsubscribe func()) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	id := sb.nextSub
+	sb.nextSub++
+	sb.subs[id] = w
+	return func() {
+		sb.mu.Lock()
+		delete(sb.subs, id)
+		sb.mu.Unlock()
+	}
+}
+
+// ReadSince devolve as linhas completas com índice absoluto >= cursor e o
+// próximo cursor. Linhas já descartadas do buffer circular são puladas.
+func (sb *sessionBuffer) ReadSince(cursor int) ([]string, int) {
+	sb.mu.RLock()
+	defer sb.mu.RUnlock()
+	first := sb.total - len(sb.buffer) // índice absoluto de buffer[0]
+	if cursor < first {
+		cursor = first
+	}
+	if cursor >= sb.total {
+		return nil, sb.total
+	}
+	lines := make([]string, sb.total-cursor)
+	copy(lines, sb.buffer[cursor-first:])
+	return lines, sb.total
+}
+
+// PromptVisible indica se a linha corrente (sem '\n') termina num prompt de
+// shell: "PS C:\> " (PowerShell) ou "C:\>" (cmd).
+func (sb *sessionBuffer) PromptVisible() bool {
+	sb.mu.RLock()
+	line := string(sb.line)
+	sb.mu.RUnlock()
+	return isPrompt(line)
+}
+
+func isPrompt(line string) bool {
+	l := strings.TrimSpace(stripAnsi(line))
+	return strings.HasSuffix(l, ">") && !strings.HasSuffix(l, ">>")
 }
 
 // readBuffer retorna as últimas n linhas (thread-safe).
@@ -85,6 +146,11 @@ func (sb *sessionBuffer) logs() []string {
 func (sb *sessionBuffer) DetectState() (state, detail string) {
 	sb.mu.RLock()
 	lines := sb.buffer
+	if len(sb.line) > 0 {
+		// A linha corrente (prompt, "(y/n)", ">>") ainda não tem '\n' mas é a
+		// que mais diz sobre o estado.
+		lines = append(lines[:len(lines):len(lines)], string(sb.line))
+	}
 	sb.mu.RUnlock()
 
 	if len(lines) == 0 {
@@ -148,7 +214,7 @@ func (sb *sessionBuffer) DetectState() (state, detail string) {
 	}
 
 	// 6. Detecta modo de continuação ">>" do PowerShell
-	lastLine := stripAnsi(strings.TrimSpace(lines[len(lines)-1]))
+	lastLine := strings.TrimSpace(stripAnsi(lines[len(lines)-1]))
 	if lastLine == ">>" || strings.HasSuffix(lastLine, ">> ") {
 		return "waiting", "PowerShell continuation mode (>>). Use: winmux reset <id>"
 	}

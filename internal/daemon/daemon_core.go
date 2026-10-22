@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -25,6 +26,8 @@ type ISession interface {
 	GetStatus() string
 	DetectState() (state, detail string)
 	ReadBuffer(n int) []string
+	ReadSince(cursor int) ([]string, int)
+	PromptVisible() bool
 	Logs() []string
 	Send(input string) error
 	Submit(input string) error
@@ -297,75 +300,59 @@ func (d *Daemon) handleJobRun(req ipc.Request) (*ipc.ResponseJobRun, error) {
 		startedAt: time.Now(),
 	}
 
-	// canal para cancelamento
+	// canal para cancelamento (job.kill pode chegar mais de uma vez)
 	done := make(chan struct{})
-	j.cancel = func() { close(done) }
+	j.cancel = sync.OnceFunc(func() { close(done) })
 
 	d.jobsMu.Lock()
 	d.jobs[jobID] = j
 	d.jobsMu.Unlock()
 
-	// goroutine que executa o comando e coleta output
-	go func() {
-		// dispara o comando na sessão
-		if err := sess.Send(req.Input); err != nil {
+	finish := func(state, errMsg string) {
+		j.mu.Lock()
+		j.state = state
+		j.errMsg = errMsg
+		now := time.Now()
+		j.endedAt = &now
+		j.mu.Unlock()
+	}
+	// cursor absoluto: só entra no job o que a sessão imprimir depois do envio.
+	_, cursor := sess.ReadSince(math.MaxInt)
+	collect := func() {
+		lines, next := sess.ReadSince(cursor)
+		cursor = next
+		if len(lines) > 0 {
 			j.mu.Lock()
-			j.state = "error"
-			j.errMsg = err.Error()
-			now := time.Now()
-			j.endedAt = &now
+			j.output = append(j.output, lines...)
 			j.mu.Unlock()
+		}
+	}
+
+	go func() {
+		if err := sess.Send(req.Input); err != nil {
+			finish("error", err.Error())
 			return
 		}
 
-		// aguarda ao menos 1s para o processo iniciar
-		select {
-		case <-done:
-			return
-		case <-time.After(1 * time.Second):
-		}
-
-		lastLen := 0
+		// Conclusão = estado idle com o prompt do shell de volta na linha corrente,
+		// por 3 ciclos seguidos (1.5s). Sem exigir o prompt, um comando silencioso
+		// (Start-Sleep) pareceria concluído.
+		// ponytail: heurística de prompt ("...>"); TUIs sem prompt nunca concluem — use status/watch para elas.
 		idleCount := 0
-
 		for {
 			select {
 			case <-done:
-				j.mu.Lock()
-				j.state = "error"
-				j.errMsg = "cancelado"
-				now := time.Now()
-				j.endedAt = &now
-				j.mu.Unlock()
+				collect()
+				finish("error", "cancelado")
 				return
 			case <-time.After(500 * time.Millisecond):
 			}
-
-			// coleta output novo
-			lines := sess.ReadBuffer(200)
-			j.mu.Lock()
-			if len(lines) > lastLen {
-				j.output = append(j.output, lines[lastLen:]...)
-				lastLen = len(lines)
-				idleCount = 0
-			}
-			j.mu.Unlock()
-
-			// detecta conclusão: idle por 3 ciclos consecutivos (1.5s)
-			state, _ := sess.DetectState()
-			if state == "idle" {
+			collect()
+			if state, _ := sess.DetectState(); state == "idle" && sess.PromptVisible() {
 				idleCount++
 				if idleCount >= 3 {
-					// captura output final
-					lines = sess.ReadBuffer(500)
-					j.mu.Lock()
-					if len(lines) > lastLen {
-						j.output = append(j.output, lines[lastLen:]...)
-					}
-					j.state = "done"
-					now := time.Now()
-					j.endedAt = &now
-					j.mu.Unlock()
+					collect()
+					finish("done", "")
 					return
 				}
 			} else {

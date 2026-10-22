@@ -3,17 +3,20 @@ package ipc
 
 import "time"
 
+// Version é a versão de CLI e daemon (mesmo protocolo).
+const Version = "0.3.0"
+
 // Request representa um comando enviado pelo CLI ao daemon.
 type Request struct {
 	Action  string `json:"action"` // "new", "list", "kill", "send", "submit", "attach", "read", "logs", "status", "reset", "watch", "key", "job.run", "job.status", "job.output", "job.list", "job.kill", "job.wait"
 	Shell   string `json:"shell,omitempty"`
 	ID      string `json:"id,omitempty"`
-	Input   string `json:"input,omitempty"` // para "send"/"submit"/"job.run"
-	Key     string `json:"key,omitempty"`   // para "key": "ctrl+c", "esc", "up", "down", "tab", "enter", "ctrl+d"
-	Lines   int    `json:"lines,omitempty"` // para "read" (quantas linhas do buffer) e "job.output" (tail)
-	OnIdle  string `json:"on_idle,omitempty"`  // para "watch"
-	OnWait  string `json:"on_wait,omitempty"`  // para "watch"
-	Timeout int    `json:"timeout,omitempty"`  // para "watch" e "job.wait" (segundos)
+	Input   string `json:"input,omitempty"`   // para "send"/"submit"/"job.run"
+	Key     string `json:"key,omitempty"`     // para "key": "ctrl+c", "esc", "up", "down", "tab", "enter", "ctrl+d"
+	Lines   int    `json:"lines,omitempty"`   // para "read" (quantas linhas do buffer) e "job.output" (tail)
+	OnIdle  string `json:"on_idle,omitempty"` // para "watch"
+	OnWait  string `json:"on_wait,omitempty"` // para "watch"
+	Timeout int    `json:"timeout,omitempty"` // para "watch" e "job.wait" (segundos)
 }
 
 // JobInfo contém os dados de um job para exibição no CLI.

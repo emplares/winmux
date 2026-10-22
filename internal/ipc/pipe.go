@@ -10,64 +10,47 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	"golang.org/x/sys/windows"
 )
 
 const PipeName = `\\.\pipe\winmux`
 
-// Server escuta em um named pipe e processa conexões.
-type Server struct {
-	handler func(req Request) (any, error)
-}
-
-// NewServer cria um novo servidor de named pipe.
-func NewServer(handler func(req Request) (any, error)) *Server {
-	return &Server{handler: handler}
-}
-
-// Listen inicia o servidor e bloqueia aceitando conexões.
-func (s *Server) Listen() error {
-	cfg := &winio.PipeConfig{
-		InputBufferSize:  65536,
-		OutputBufferSize: 65536,
-	}
-	listener, err := winio.ListenPipe(PipeName, cfg)
+// Listen abre o named pipe do daemon. A DACL é explícita: só SYSTEM,
+// Administrators e o usuário que roda o daemon conectam. Sem ela o Windows
+// aplica a ACL padrão de pipes, que também dá leitura a Everyone e Anonymous.
+// Clientes remotos (SMB) já são recusados pelo go-winio.
+func Listen() (net.Listener, error) {
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
-		return fmt.Errorf("criar named pipe %s: %w", PipeName, err)
+		return nil, fmt.Errorf("identificar usuário do daemon: %w", err)
 	}
-	defer listener.Close()
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			return fmt.Errorf("aceitar conexão: %w", err)
-		}
-		go s.handleConn(conn)
+	sddl := "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;" + user.User.Sid.String() + ")"
+	l, err := winio.ListenPipe(PipeName, &winio.PipeConfig{
+		SecurityDescriptor: sddl,
+		InputBufferSize:    65536,
+		OutputBufferSize:   65536,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("criar named pipe %s: %w", PipeName, err)
 	}
+	return l, nil
 }
 
-func (s *Server) handleConn(conn net.Conn) {
-	defer conn.Close()
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		var req Request
-		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
-			continue
-		}
-		resp, err := s.handler(req)
-		if err != nil {
-			resp = map[string]string{"error": err.Error()}
-		}
-		data, _ := json.Marshal(resp)
-		conn.Write(append(data, '\n'))
-	}
-}
-
-// SendRequest envia um request ao daemon e retorna a resposta JSON raw.
-func SendRequest(req Request) ([]byte, error) {
+// Dial conecta ao daemon.
+func Dial() (net.Conn, error) {
 	timeout := 3 * time.Second
 	conn, err := winio.DialPipe(PipeName, &timeout)
 	if err != nil {
 		return nil, fmt.Errorf("conectar ao daemon: %w\nO daemon está rodando? Execute: winmux-daemon.exe", err)
+	}
+	return conn, nil
+}
+
+// SendRequest envia um request ao daemon e retorna a resposta JSON raw.
+func SendRequest(req Request) ([]byte, error) {
+	conn, err := Dial()
+	if err != nil {
+		return nil, err
 	}
 	defer conn.Close()
 
@@ -77,8 +60,12 @@ func SendRequest(req Request) ([]byte, error) {
 	}
 
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024) // logs/job output passam de 64KB
 	if scanner.Scan() {
 		return scanner.Bytes(), nil
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("ler resposta do daemon: %w", err)
 	}
 	return nil, fmt.Errorf("sem resposta do daemon")
 }
