@@ -15,7 +15,7 @@ import (
 const (
 	serviceName        = "WinMuxDaemon"
 	serviceDisplayName = "WinMux Daemon"
-	serviceDescription = "winmux daemon — gerencia sessões PowerShell via ConPTY + named pipes"
+	serviceDescription = "winmux daemon: persistent PowerShell sessions over ConPTY and a named pipe"
 )
 
 // installService instala o daemon como serviço Windows com início automático.
@@ -23,16 +23,16 @@ func installService() error {
 	// Caminho absoluto do executável atual
 	exePath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("obter caminho do executável: %w", err)
+		return fmt.Errorf("get executable path: %w", err)
 	}
 	exePath, err = filepath.Abs(exePath)
 	if err != nil {
-		return fmt.Errorf("resolver caminho absoluto: %w", err)
+		return fmt.Errorf("resolve absolute path: %w", err)
 	}
 
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("conectar ao Service Control Manager: %w", err)
+		return fmt.Errorf("connect to Service Control Manager: %w", err)
 	}
 	defer m.Disconnect()
 
@@ -40,7 +40,7 @@ func installService() error {
 	s, err := m.OpenService(serviceName)
 	if err == nil {
 		s.Close()
-		return fmt.Errorf("serviço %q já existe. Use --remove-service para remover primeiro", serviceName)
+		return fmt.Errorf("service %q already exists. Run --remove-service first", serviceName)
 	}
 
 	// Cria o serviço
@@ -55,13 +55,13 @@ func installService() error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("criar serviço: %w", err)
+		return fmt.Errorf("create service: %w", err)
 	}
 	defer s.Close()
 
-	fmt.Printf("✓ Serviço %q instalado com sucesso.\n", serviceName)
-	fmt.Println("  Para iniciar: sc start WinMuxDaemon")
-	fmt.Println("  Para parar:   sc stop WinMuxDaemon")
+	fmt.Printf("✓ Service %q installed.\n", serviceName)
+	fmt.Println("  Start: sc start WinMuxDaemon")
+	fmt.Println("  Stop:  sc stop WinMuxDaemon")
 	return nil
 }
 
@@ -69,13 +69,13 @@ func installService() error {
 func removeService() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("conectar ao Service Control Manager: %w", err)
+		return fmt.Errorf("connect to Service Control Manager: %w", err)
 	}
 	defer m.Disconnect()
 
 	s, err := m.OpenService(serviceName)
 	if err != nil {
-		return fmt.Errorf("serviço %q não encontrado: %w", serviceName, err)
+		return fmt.Errorf("service %q not found: %w", serviceName, err)
 	}
 	defer s.Close()
 
@@ -94,10 +94,10 @@ func removeService() error {
 	}
 
 	if err := s.Delete(); err != nil {
-		return fmt.Errorf("remover serviço: %w", err)
+		return fmt.Errorf("remove service: %w", err)
 	}
 
-	fmt.Printf("✓ Serviço %q removido com sucesso.\n", serviceName)
+	fmt.Printf("✓ Service %q removed.\n", serviceName)
 	return nil
 }
 
@@ -133,7 +133,7 @@ func (ws *winmuxService) Execute(args []string, r <-chan svc.ChangeRequest, chan
 func runAsService(daemonRun func()) (bool, error) {
 	isService, err := svc.IsWindowsService()
 	if err != nil {
-		return false, fmt.Errorf("detectar modo de serviço: %w", err)
+		return false, fmt.Errorf("detect service mode: %w", err)
 	}
 	if !isService {
 		return false, nil
@@ -141,7 +141,7 @@ func runAsService(daemonRun func()) (bool, error) {
 
 	ws := &winmuxService{run: daemonRun}
 	if err := svc.Run(serviceName, ws); err != nil {
-		return true, fmt.Errorf("executar como serviço: %w", err)
+		return true, fmt.Errorf("run as service: %w", err)
 	}
 	return true, nil
 }

@@ -50,7 +50,7 @@ func NewSession(id, shell string) (*Session, error) {
 
 	cpty, err := conpty.Start(path, conpty.ConPtyWorkDir(dir))
 	if err != nil {
-		return nil, fmt.Errorf("iniciar ConPTY (%s): %w", path, err)
+		return nil, fmt.Errorf("start ConPTY (%s): %w", path, err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -167,7 +167,7 @@ var keySequences = map[string][]byte{
 func (s *Session) SendKey(key string) error {
 	seq, ok := keySequences[strings.ToLower(key)]
 	if !ok {
-		return fmt.Errorf("tecla desconhecida: %q. Use: esc, ctrl+c, ctrl+d, tab, enter, up, down, left, right, home, end, pgup, pgdn, backspace", key)
+		return fmt.Errorf("unknown key: %q. Use: esc, ctrl+c, ctrl+d, tab, enter, up, down, left, right, home, end, pgup, pgdn, backspace", key)
 	}
 	_, err := s.cpty.Write(seq)
 	return err

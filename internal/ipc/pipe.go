@@ -22,7 +22,7 @@ const PipeName = `\\.\pipe\winmux`
 func Listen() (net.Listener, error) {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
-		return nil, fmt.Errorf("identificar usuário do daemon: %w", err)
+		return nil, fmt.Errorf("identify daemon user: %w", err)
 	}
 	sddl := "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;" + user.User.Sid.String() + ")"
 	l, err := winio.ListenPipe(PipeName, &winio.PipeConfig{
@@ -31,7 +31,7 @@ func Listen() (net.Listener, error) {
 		OutputBufferSize:   65536,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("criar named pipe %s: %w", PipeName, err)
+		return nil, fmt.Errorf("create named pipe %s: %w", PipeName, err)
 	}
 	return l, nil
 }
@@ -41,7 +41,7 @@ func Dial() (net.Conn, error) {
 	timeout := 3 * time.Second
 	conn, err := winio.DialPipe(PipeName, &timeout)
 	if err != nil {
-		return nil, fmt.Errorf("conectar ao daemon: %w\nO daemon está rodando? Execute: winmux-daemon.exe", err)
+		return nil, fmt.Errorf("connect to daemon: %w\nIs the daemon running? Start it with: winmux-daemon.exe", err)
 	}
 	return conn, nil
 }
@@ -65,7 +65,7 @@ func SendRequest(req Request) ([]byte, error) {
 		return scanner.Bytes(), nil
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("ler resposta do daemon: %w", err)
+		return nil, fmt.Errorf("read daemon response: %w", err)
 	}
-	return nil, fmt.Errorf("sem resposta do daemon")
+	return nil, fmt.Errorf("no response from daemon")
 }

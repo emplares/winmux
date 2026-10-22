@@ -21,13 +21,13 @@ func main() {
 		switch arg {
 		case "--install-service":
 			if err := installService(); err != nil {
-				fmt.Fprintf(os.Stderr, "Erro ao instalar serviço: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Failed to install service: %v\n", err)
 				os.Exit(1)
 			}
 			os.Exit(0)
 		case "--remove-service":
 			if err := removeService(); err != nil {
-				fmt.Fprintf(os.Stderr, "Erro ao remover serviço: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Failed to remove service: %v\n", err)
 				os.Exit(1)
 			}
 			os.Exit(0)
@@ -40,7 +40,7 @@ func main() {
 	// Detectar se está rodando como serviço Windows
 	wasService, err := runAsService(runDaemon)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Erro no modo serviço: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Service mode error: %v\n", err)
 		os.Exit(1)
 	}
 	if wasService {
@@ -63,22 +63,22 @@ func runDaemon() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		fmt.Println("\nwinmux daemon encerrando...")
+		fmt.Println("\nwinmux daemon shutting down...")
 		os.Exit(0)
 	}()
 
 	listener, err := ipc.Listen()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Erro: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	defer listener.Close()
 
-	fmt.Println("Aguardando conexões...")
+	fmt.Println("Waiting for connections...")
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Erro ao aceitar conexão: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Failed to accept connection: %v\n", err)
 			continue
 		}
 		go handleConn(d, conn)
@@ -110,16 +110,15 @@ func handleConn(d *daemon.Daemon, conn net.Conn) {
 }
 
 func printDaemonUsage() {
-	fmt.Println(`winmux-daemon — daemon de sessões PowerShell via ConPTY + named pipes
+	fmt.Println(`winmux-daemon: keeps PowerShell sessions alive in ConPTY behind a named pipe
 
-Uso:
-  winmux-daemon.exe                    Executa em modo normal (terminal)
-  winmux-daemon.exe --install-service  Instala como serviço Windows (auto-start)
-  winmux-daemon.exe --remove-service   Remove o serviço Windows
-  winmux-daemon.exe --help             Exibe esta ajuda
+Usage:
+  winmux-daemon.exe                    Run in the foreground
+  winmux-daemon.exe --install-service  Install as a Windows service (auto-start, LocalSystem)
+  winmux-daemon.exe --remove-service   Remove the Windows service
+  winmux-daemon.exe --help             Show this help
 
-Quando instalado como serviço, o daemon inicia automaticamente com o Windows.
-Gerenciar com:
+Manage the service with:
   sc start WinMuxDaemon
   sc stop  WinMuxDaemon
   sc query WinMuxDaemon`)

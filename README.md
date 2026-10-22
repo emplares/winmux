@@ -5,6 +5,8 @@
 
 **tmux-style persistent sessions for native Windows PowerShell, built so a remote AI agent can drive interactive CLIs over SSH.**
 
+🇧🇷 Projeto brasileiro; documentação em inglês para alcance internacional.
+
 A small daemon keeps PowerShell or cmd sessions alive in ConPTY, Windows' native pseudo-terminal. A CLI talks to it over a local named pipe. You can create sessions and type into them, read their output and ask whether a session is idle, busy or waiting for input, all from a plain SSH command. No VNC, no WSL, no screen sharing.
 
 ## Why it exists
@@ -50,8 +52,6 @@ winmux status ec3f2a                           # busy while it works, waiting on
 winmux key ec3f2a enter                        # answer a menu
 winmux read ec3f2a 40                          # read the screen
 ```
-
-The CLI's own messages are in Portuguese for now. Commands and flags are in English.
 
 ## Install
 

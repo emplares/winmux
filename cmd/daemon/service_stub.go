@@ -6,12 +6,12 @@ import "fmt"
 
 // installService não é suportado fora do Windows.
 func installService() error {
-	return fmt.Errorf("instalação de serviço disponível apenas no Windows")
+	return fmt.Errorf("service install is only available on Windows")
 }
 
 // removeService não é suportado fora do Windows.
 func removeService() error {
-	return fmt.Errorf("remoção de serviço disponível apenas no Windows")
+	return fmt.Errorf("service removal is only available on Windows")
 }
 
 // runAsService retorna sempre false em sistemas não-Windows.

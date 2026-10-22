@@ -19,14 +19,14 @@ func (d *Daemon) HandleAttach(id string, conn net.Conn) {
 	d.mu.RUnlock()
 
 	if !ok {
-		resp := ipc.ResponseAttach{Error: fmt.Sprintf("sessão %q não encontrada", id)}
+		resp := ipc.ResponseAttach{Error: fmt.Sprintf("session %q not found", id)}
 		writeJSON(conn, resp)
 		return
 	}
 
 	concrete, ok := sess.(*Session)
 	if !ok {
-		writeJSON(conn, ipc.ResponseAttach{Error: "sessão não suporta attach"})
+		writeJSON(conn, ipc.ResponseAttach{Error: "session does not support attach"})
 		return
 	}
 	// Confirma attach; daqui em diante o protocolo é streaming raw.
@@ -40,7 +40,7 @@ func (d *Daemon) handleWatch(req ipc.Request) (*ipc.ResponseWatch, error) {
 	_, ok := d.sessions[req.ID]
 	d.mu.RUnlock()
 	if !ok {
-		return &ipc.ResponseWatch{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseWatch{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 
 	go d.runWatch(req)

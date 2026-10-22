@@ -132,7 +132,7 @@ func (d *Daemon) Handle(req ipc.Request) (any, error) {
 	case "job.wait":
 		return d.handleJobWait(req)
 	default:
-		return nil, fmt.Errorf("ação desconhecida: %s", req.Action)
+		return nil, fmt.Errorf("unknown action: %s", req.Action)
 	}
 }
 
@@ -183,7 +183,7 @@ func (d *Daemon) handleKill(req ipc.Request) (*ipc.ResponseKill, error) {
 	defer d.mu.Unlock()
 	sess, ok := d.sessions[req.ID]
 	if !ok {
-		return &ipc.ResponseKill{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseKill{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 	sess.Close()
 	delete(d.sessions, req.ID)
@@ -195,7 +195,7 @@ func (d *Daemon) handleSend(req ipc.Request) (*ipc.ResponseSend, error) {
 	sess, ok := d.sessions[req.ID]
 	d.mu.RUnlock()
 	if !ok {
-		return &ipc.ResponseSend{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseSend{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 	if err := sess.Send(req.Input); err != nil {
 		return &ipc.ResponseSend{Error: err.Error()}, nil
@@ -208,7 +208,7 @@ func (d *Daemon) handleSubmit(req ipc.Request) (*ipc.ResponseSend, error) {
 	sess, ok := d.sessions[req.ID]
 	d.mu.RUnlock()
 	if !ok {
-		return &ipc.ResponseSend{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseSend{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 	if err := sess.Submit(req.Input); err != nil {
 		return &ipc.ResponseSend{Error: err.Error()}, nil
@@ -221,7 +221,7 @@ func (d *Daemon) handleRead(req ipc.Request) (*ipc.ResponseRead, error) {
 	sess, ok := d.sessions[req.ID]
 	d.mu.RUnlock()
 	if !ok {
-		return &ipc.ResponseRead{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseRead{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 	n := req.Lines
 	if n == 0 {
@@ -235,7 +235,7 @@ func (d *Daemon) handleStatus(req ipc.Request) (*ipc.ResponseStatus, error) {
 	sess, ok := d.sessions[req.ID]
 	d.mu.RUnlock()
 	if !ok {
-		return &ipc.ResponseStatus{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseStatus{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 	state, detail := sess.DetectState()
 	return &ipc.ResponseStatus{State: state, Detail: detail}, nil
@@ -246,7 +246,7 @@ func (d *Daemon) handleReset(req ipc.Request) (*ipc.ResponseSend, error) {
 	sess, ok := d.sessions[req.ID]
 	d.mu.RUnlock()
 	if !ok {
-		return &ipc.ResponseSend{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseSend{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 	if err := sess.Reset(); err != nil {
 		return &ipc.ResponseSend{Error: err.Error()}, nil
@@ -259,7 +259,7 @@ func (d *Daemon) handleKey(req ipc.Request) (*ipc.ResponseKey, error) {
 	sess, ok := d.sessions[req.ID]
 	d.mu.RUnlock()
 	if !ok {
-		return &ipc.ResponseKey{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseKey{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 	if err := sess.SendKey(req.Key); err != nil {
 		return &ipc.ResponseKey{Error: err.Error()}, nil
@@ -272,7 +272,7 @@ func (d *Daemon) handleLogs(req ipc.Request) (*ipc.ResponseLogs, error) {
 	sess, ok := d.sessions[req.ID]
 	d.mu.RUnlock()
 	if !ok {
-		return &ipc.ResponseLogs{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseLogs{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 	return &ipc.ResponseLogs{Lines: sess.Logs()}, nil
 }
@@ -284,7 +284,7 @@ func (d *Daemon) handleJobRun(req ipc.Request) (*ipc.ResponseJobRun, error) {
 	sess, ok := d.sessions[req.ID]
 	d.mu.RUnlock()
 	if !ok {
-		return &ipc.ResponseJobRun{Error: fmt.Sprintf("sessão %q não encontrada", req.ID)}, nil
+		return &ipc.ResponseJobRun{Error: fmt.Sprintf("session %q not found", req.ID)}, nil
 	}
 
 	jobID, err := newID()
@@ -350,7 +350,7 @@ func (d *Daemon) handleJobRun(req ipc.Request) (*ipc.ResponseJobRun, error) {
 			select {
 			case <-done:
 				collect()
-				finish("error", "cancelado")
+				finish("error", "cancelled")
 				return
 			case <-time.After(500 * time.Millisecond):
 			}
@@ -386,7 +386,7 @@ func (d *Daemon) handleJobStatus(req ipc.Request) (*ipc.ResponseJobStatus, error
 	j, ok := d.jobs[req.ID]
 	d.jobsMu.RUnlock()
 	if !ok {
-		return &ipc.ResponseJobStatus{Error: fmt.Sprintf("job %q não encontrado", req.ID)}, nil
+		return &ipc.ResponseJobStatus{Error: fmt.Sprintf("job %q not found", req.ID)}, nil
 	}
 	return &ipc.ResponseJobStatus{Job: j.info()}, nil
 }
@@ -396,7 +396,7 @@ func (d *Daemon) handleJobOutput(req ipc.Request) (*ipc.ResponseJobOutput, error
 	j, ok := d.jobs[req.ID]
 	d.jobsMu.RUnlock()
 	if !ok {
-		return &ipc.ResponseJobOutput{Error: fmt.Sprintf("job %q não encontrado", req.ID)}, nil
+		return &ipc.ResponseJobOutput{Error: fmt.Sprintf("job %q not found", req.ID)}, nil
 	}
 	j.mu.RLock()
 	lines := make([]string, len(j.output))
@@ -425,13 +425,13 @@ func (d *Daemon) handleJobKill(req ipc.Request) (*ipc.ResponseJobKill, error) {
 	j, ok := d.jobs[req.ID]
 	d.jobsMu.Unlock()
 	if !ok {
-		return &ipc.ResponseJobKill{Error: fmt.Sprintf("job %q não encontrado", req.ID)}, nil
+		return &ipc.ResponseJobKill{Error: fmt.Sprintf("job %q not found", req.ID)}, nil
 	}
 	j.mu.RLock()
 	state := j.state
 	j.mu.RUnlock()
 	if state != "running" {
-		return &ipc.ResponseJobKill{Error: fmt.Sprintf("job %q não está running (estado: %s)", req.ID, state)}, nil
+		return &ipc.ResponseJobKill{Error: fmt.Sprintf("job %q is not running (state: %s)", req.ID, state)}, nil
 	}
 	if j.cancel != nil {
 		j.cancel()
@@ -444,7 +444,7 @@ func (d *Daemon) handleJobWait(req ipc.Request) (*ipc.ResponseJobStatus, error) 
 	j, ok := d.jobs[req.ID]
 	d.jobsMu.RUnlock()
 	if !ok {
-		return &ipc.ResponseJobStatus{Error: fmt.Sprintf("job %q não encontrado", req.ID)}, nil
+		return &ipc.ResponseJobStatus{Error: fmt.Sprintf("job %q not found", req.ID)}, nil
 	}
 
 	timeout := time.Duration(req.Timeout) * time.Second

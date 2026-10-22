@@ -67,7 +67,7 @@ func main() {
 		cmdWatch(os.Args[2:])
 	case "job":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "Uso: winmux job <run|status|output|wait|list|kill> ...")
+			fmt.Fprintln(os.Stderr, "Usage: winmux job <run|status|output|wait|list|kill> ...")
 			os.Exit(1)
 		}
 		switch os.Args[2] {
@@ -89,13 +89,13 @@ func main() {
 			requireJobArgs("job kill", 4)
 			cmdJobKill(os.Args[3])
 		default:
-			fmt.Fprintf(os.Stderr, "Subcomando job desconhecido: %s\n", os.Args[2])
+			fmt.Fprintf(os.Stderr, "Unknown job subcommand: %s\n", os.Args[2])
 			os.Exit(1)
 		}
 	case "version":
 		fmt.Println("winmux v" + ipc.Version)
 	default:
-		fmt.Fprintf(os.Stderr, "Comando desconhecido: %s\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
 		printUsage()
 		os.Exit(1)
 	}
@@ -117,7 +117,7 @@ func cmdNew() {
 	if r.Error != "" {
 		fatal(errors.New(r.Error))
 	}
-	fmt.Printf("✓ Sessão criada: %s (PID %d)\n", r.SessionID, r.PID)
+	fmt.Printf("✓ Session created: %s (PID %d)\n", r.SessionID, r.PID)
 	fmt.Printf("  winmux attach %s\n", r.SessionID)
 }
 
@@ -132,7 +132,7 @@ func cmdList() {
 		fatal(errors.New(r.Error))
 	}
 	if len(r.Sessions) == 0 {
-		fmt.Println("Nenhuma sessão ativa. Use: winmux new")
+		fmt.Println("No active sessions. Use: winmux new")
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -156,7 +156,7 @@ func cmdKill(id string) {
 	if r.Error != "" {
 		fatal(errors.New(r.Error))
 	}
-	fmt.Printf("✓ Sessão %s encerrada.\n", id)
+	fmt.Printf("✓ Session %s killed.\n", id)
 }
 
 func cmdSend(id, input string) {
@@ -169,7 +169,7 @@ func cmdSend(id, input string) {
 	if r.Error != "" {
 		fatal(errors.New(r.Error))
 	}
-	fmt.Printf("✓ Comando enviado para sessão %s\n", id)
+	fmt.Printf("✓ Command sent to session %s\n", id)
 }
 
 // cmdSubmit é como send mas com semântica explícita para TUIs interativas.
@@ -184,7 +184,7 @@ func cmdSubmit(id, input string) {
 	if r.Error != "" {
 		fatal(errors.New(r.Error))
 	}
-	fmt.Printf("✓ Input submetido para sessão %s\n", id)
+	fmt.Printf("✓ Input submitted to session %s\n", id)
 }
 
 func cmdRead(id string, lines int) {
@@ -245,7 +245,7 @@ func cmdReset(id string) {
 	if r.Error != "" {
 		fatal(errors.New(r.Error))
 	}
-	fmt.Printf("✓ Sessão %s resetada (Ctrl+C enviado)\n", id)
+	fmt.Printf("✓ Session %s reset (Ctrl+C sent)\n", id)
 }
 
 func cmdKey(id, key string) {
@@ -258,7 +258,7 @@ func cmdKey(id, key string) {
 	if r.Error != "" {
 		fatal(errors.New(r.Error))
 	}
-	fmt.Printf("✓ Tecla %q enviada para sessão %s\n", key, id)
+	fmt.Printf("✓ Key %q sent to session %s\n", key, id)
 }
 
 // cmdLogs exibe o histórico completo do buffer de output de uma sessão (até 500 linhas).
@@ -281,7 +281,7 @@ func cmdLogs(id string) {
 // Uso: winmux watch <id> [--on-idle <cmd>] [--on-waiting <cmd>] [--timeout <segundos>]
 func cmdWatch(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Uso: winmux watch <id> [--on-idle <cmd>] [--on-waiting <cmd>] [--timeout <seg>]")
+		fmt.Fprintln(os.Stderr, "Usage: winmux watch <id> [--on-idle <cmd>] [--on-waiting <cmd>] [--timeout <sec>]")
 		os.Exit(1)
 	}
 	id := args[0]
@@ -319,7 +319,7 @@ func cmdWatch(args []string) {
 		fatal(errors.New(r.Error))
 	}
 
-	fmt.Printf("👀 Watching sessão %s", id)
+	fmt.Printf("👀 Watching session %s", id)
 	if req.OnIdle != "" {
 		fmt.Printf(" | on-idle: %q", req.OnIdle)
 	}
@@ -327,14 +327,14 @@ func cmdWatch(args []string) {
 		fmt.Printf(" | on-waiting: %q", req.OnWait)
 	}
 	fmt.Println()
-	fmt.Println("   (O callback será executado pelo daemon em background)")
+	fmt.Println("   (the daemon runs the callback in the background)")
 }
 
 // ── Job commands ──────────────────────────────────────────────────────────────
 
 func requireJobArgs(cmd string, min int) {
 	if len(os.Args) < min {
-		fmt.Fprintf(os.Stderr, "Uso: winmux %s\n", cmd)
+		fmt.Fprintf(os.Stderr, "Usage: winmux %s\n", cmd)
 		os.Exit(1)
 	}
 }
@@ -349,7 +349,7 @@ func cmdJobRun(sessionID, command string) {
 	if r.Error != "" {
 		fatal(errors.New(r.Error))
 	}
-	fmt.Printf("✓ Job iniciado: %s\n", r.JobID)
+	fmt.Printf("✓ Job started: %s\n", r.JobID)
 	fmt.Printf("  winmux job status %s\n", r.JobID)
 	fmt.Printf("  winmux job output %s\n", r.JobID)
 }
@@ -377,9 +377,9 @@ func cmdJobStatus(jobID string) {
 		prefix = "?"
 	}
 	elapsed := time.Since(j.StartedAt).Round(time.Second)
-	fmt.Printf("%s %s  sessão=%s  linhas=%d  tempo=%s\n", prefix, j.State, j.SessionID, j.Lines, elapsed)
+	fmt.Printf("%s %s  session=%s  lines=%d  elapsed=%s\n", prefix, j.State, j.SessionID, j.Lines, elapsed)
 	if j.Error != "" {
-		fmt.Printf("  erro: %s\n", j.Error)
+		fmt.Printf("  error: %s\n", j.Error)
 	}
 }
 
@@ -423,7 +423,7 @@ func cmdJobWait(args []string) {
 			i++
 		}
 	}
-	fmt.Printf("⏳ Aguardando job %s", jobID)
+	fmt.Printf("⏳ Waiting for job %s", jobID)
 	if timeout > 0 {
 		fmt.Printf(" (timeout: %ds)", timeout)
 	}
@@ -441,11 +441,11 @@ func cmdJobWait(args []string) {
 	j := r.Job
 	switch j.State {
 	case "done":
-		fmt.Printf("✓ Concluído em %s (%d linhas de output)\n", j.EndedAt.Sub(j.StartedAt).Round(time.Second), j.Lines)
+		fmt.Printf("✓ Done in %s (%d lines of output)\n", j.EndedAt.Sub(j.StartedAt).Round(time.Second), j.Lines)
 	case "error":
-		fmt.Printf("❌ Erro: %s\n", j.Error)
+		fmt.Printf("❌ Error: %s\n", j.Error)
 	case "running":
-		fmt.Println("⏸ Timeout atingido — job ainda em execução.")
+		fmt.Println("⏸ Timed out; the job is still running.")
 	}
 }
 
@@ -460,12 +460,12 @@ func cmdJobList() {
 		fatal(errors.New(r.Error))
 	}
 	if len(r.Jobs) == 0 {
-		fmt.Println("Nenhum job ativo.")
+		fmt.Println("No active jobs.")
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "JOB\tSESSÃO\tESTADO\tLINHAS\tTEMPO\tCOMANDO")
-	fmt.Fprintln(w, "───\t──────\t──────\t──────\t─────\t───────")
+	fmt.Fprintln(w, "JOB\tSESSION\tSTATE\tLINES\tELAPSED\tCOMMAND")
+	fmt.Fprintln(w, "───\t───────\t─────\t─────\t───────\t───────")
 	for _, j := range r.Jobs {
 		elapsed := time.Since(j.StartedAt).Round(time.Second)
 		cmd := j.Command
@@ -488,7 +488,7 @@ func cmdJobKill(jobID string) {
 	if r.Error != "" {
 		fatal(errors.New(r.Error))
 	}
-	fmt.Printf("✓ Job %s cancelado.\n", jobID)
+	fmt.Printf("✓ Job %s cancelled.\n", jobID)
 }
 
 func cmdAttach(id string) {
@@ -506,7 +506,7 @@ func cmdAttach(id string) {
 	rd := bufio.NewReader(conn)
 	line, err := rd.ReadBytes('\n')
 	if err != nil {
-		fatal(fmt.Errorf("sem resposta do daemon: %w", err))
+		fatal(fmt.Errorf("no response from daemon: %w", err))
 	}
 	var r ipc.ResponseAttach
 	mustUnmarshal(line, &r)
@@ -514,14 +514,14 @@ func cmdAttach(id string) {
 		fatal(errors.New(r.Error))
 	}
 
-	fmt.Printf("[winmux] Conectado à sessão %s — Ctrl+C para desconectar\n", id)
+	fmt.Printf("[winmux] Attached to session %s. Ctrl+C to detach\n", id)
 
 	// Captura Ctrl+C para desconectar limpo
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT)
 	go func() {
 		<-sigCh
-		fmt.Println("\n[winmux] Desconectado. Sessão continua rodando.")
+		fmt.Println("\n[winmux] Detached. The session keeps running.")
 		conn.Close()
 		os.Exit(0)
 	}()
@@ -539,59 +539,58 @@ func send(req ipc.Request) ([]byte, error) {
 
 func mustUnmarshal(data []byte, v any) {
 	if err := json.Unmarshal(data, v); err != nil {
-		fatal(fmt.Errorf("resposta inválida do daemon: %v", err))
+		fatal(fmt.Errorf("invalid response from daemon: %v", err))
 	}
 }
 
 func requireArg(cmd string, min int) {
 	if len(os.Args) < min {
-		fmt.Fprintf(os.Stderr, "Uso: winmux %s <id>\n", cmd)
+		fmt.Fprintf(os.Stderr, "Usage: winmux %s <id>\n", cmd)
 		os.Exit(1)
 	}
 }
 
 func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "Erro:", err)
+	fmt.Fprintln(os.Stderr, "Error:", err)
 	os.Exit(1)
 }
 
 func printUsage() {
-	fmt.Println(`winmux — controle remoto de sessões PowerShell
+	fmt.Println(`winmux: persistent PowerShell sessions you can drive remotely
 
-Uso:
-  winmux new [--shell powershell|cmd]          Cria nova sessão
-  winmux list                                  Lista sessões ativas
-  winmux attach <id>                           Conecta à sessão (I/O ao vivo)
-  winmux send <id> <comando>                   Injeta comando (shell)
-  winmux submit <id> <texto>                   Injeta texto em TUI (Gemini, Codex)
-  winmux logs <id>                             Histórico completo do buffer (até 500 linhas)
-  winmux read <id> [linhas]                    Lê buffer de output (padrão: 50)
-  winmux status <id>                           Estado: idle | busy | waiting
-  winmux key <id> <tecla>                      Envia tecla especial
-  winmux reset <id>                            Envia Ctrl+C (limpa >>)
-  winmux watch <id> [--on-idle <cmd>]          Notifica quando estado muda
+Usage:
+  winmux new [--shell powershell|cmd]          Start a new session
+  winmux list                                  List active sessions
+  winmux attach <id>                           Attach to a session (live I/O)
+  winmux send <id> <command>                   Type a command and press Enter
+  winmux submit <id> <text>                    Type text into a TUI (Gemini, Codex)
+  winmux logs <id>                             Output history (up to 500 lines)
+  winmux read <id> [lines]                     Read the output buffer (default: 50)
+  winmux status <id>                           State: idle | busy | waiting | error
+  winmux key <id> <key>                        Send a special key
+  winmux reset <id>                            Send Ctrl+C (leaves the >> prompt)
+  winmux watch <id> [--on-idle <cmd>]          Run a callback when the state changes
               [--on-waiting <cmd>]
-              [--timeout <segundos>]
-  winmux kill <id>                             Encerra sessão
+              [--timeout <seconds>]
+  winmux kill <id>                             End a session
 
-Jobs assíncronos (modo agente):
-  winmux job run <id> <comando>                Dispara comando async, retorna job ID
-  winmux job status <job-id>                   Estado: running | done | error
-  winmux job output <job-id> [--tail N]        Output acumulado do job
-  winmux job wait <job-id> [--timeout 30m]     Aguarda conclusão com timeout
-  winmux job list                              Lista todos os jobs ativos
-  winmux job kill <job-id>                     Cancela job em andamento
+Async jobs (agent mode):
+  winmux job run <id> <command>                Run a command async, print the job ID
+  winmux job status <job-id>                   State: running | done | error
+  winmux job output <job-id> [--tail N]        Output collected so far
+  winmux job wait <job-id> [--timeout 30m]     Wait until done, with a timeout
+  winmux job list                              List jobs
+  winmux job kill <job-id>                     Cancel a running job
 
-  winmux version                               Versão
+  winmux version                               Version
 
-Exemplos:
-  winmux submit abc123 "resuma esses arquivos"
+Examples:
+  winmux submit abc123 "summarize these files"
   winmux key abc123 esc
   winmux key abc123 ctrl+c
-  winmux key abc123 up
   winmux status abc123
-  winmux watch abc123 --on-idle "curl -X POST https://meu-webhook.com/notify"
+  winmux watch abc123 --on-idle "curl -X POST https://example.com/notify"
   winmux reset abc123
 
-O daemon deve estar rodando: winmux-daemon.exe`)
+The daemon must be running: winmux-daemon.exe`)
 }

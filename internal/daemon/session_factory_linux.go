@@ -9,5 +9,5 @@ import "fmt"
 // defaultSessionFactory é a factory padrão no Linux: sempre retorna erro.
 // Os testes devem usar NewWithFactory com uma mock factory.
 func defaultSessionFactory(id, shell string) (ISession, error) {
-	return nil, fmt.Errorf("ConPTY não disponível em Linux; use NewWithFactory com mock para testes")
+	return nil, fmt.Errorf("ConPTY is not available on this OS; use NewWithFactory with a mock in tests")
 }
