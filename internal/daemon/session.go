@@ -116,9 +116,11 @@ func (s *Session) Logs() []string {
 	return s.logs()
 }
 
-// Send injeta texto + Enter na sessão.
+// Send injeta texto + Enter na sessão. Enter no ConPTY é só '\r': um '\n'
+// extra chega ao PSReadLine como nova linha e deixa o PowerShell no prompt
+// de continuação ">>".
 func (s *Session) Send(input string) error {
-	_, err := s.cpty.Write([]byte(input + "\r\n"))
+	_, err := s.cpty.Write([]byte(input + "\r"))
 	return err
 }
 
@@ -133,7 +135,7 @@ func (s *Session) Reset() error {
 		return err
 	}
 	time.Sleep(100 * time.Millisecond)
-	_, err := s.cpty.Write([]byte("\r\n"))
+	_, err := s.cpty.Write([]byte("\r"))
 	return err
 }
 

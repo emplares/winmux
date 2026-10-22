@@ -1,221 +1,127 @@
 # winmux
 
-> Controle remoto de sessões PowerShell no Windows — sem VNC, sem WSL obrigatório.
+[![ci](https://github.com/emplares/winmux/actions/workflows/ci.yml/badge.svg)](https://github.com/emplares/winmux/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**winmux** é uma camada leve sobre ConPTY que permite criar, listar, injetar comandos e monitorar sessões de terminal Windows remotamente via SSH.
+**tmux-style persistent sessions for native Windows PowerShell, built so a remote AI agent can drive interactive CLIs over SSH.**
 
-Nasceu de um caso de uso real: controlar o Codex CLI e o Gemini CLI rodando no Windows a partir de um agente de IA na nuvem, via WhatsApp.
+A small daemon keeps PowerShell or cmd sessions alive in ConPTY, Windows' native pseudo-terminal. A CLI talks to it over a local named pipe. You can create sessions and type into them, read their output and ask whether a session is idle, busy or waiting for input, all from a plain SSH command. No VNC, no WSL, no screen sharing.
 
----
+## Why it exists
 
-## O problema
-
-No Windows, não existe forma elegante de:
-- Injetar comandos em sessões de terminal já abertas remotamente
-- Monitorar o estado de um processo interativo (busy? esperando input?)
-- Ser notificado quando um agente de IA termina uma tarefa longa
-
-Soluções existentes exigem WSL, VNC, ou gambiarras com ConPTY sem abstração.
-
-## A solução
-
-Um daemon leve (named pipe) + CLI simples:
+I had Codex CLI and Gemini CLI running in PowerShell on a Windows laptop and wanted a cloud agent to send them prompts, from a chat message through SSH into the running terminal UI. On Linux that's `tmux send-keys` and `tmux capture-pane`. Windows has nothing like it: OpenSSH gives you a fresh shell each time, and there's no way to type into a terminal session that's already running.
 
 ```
-winmux-daemon.exe   → roda em background, gerencia sessões via ConPTY
-winmux.exe          → CLI para interagir com as sessões
+chat ─► cloud agent ─► ssh ─► winmux.exe ─► \\.\pipe\winmux ─► winmux-daemon.exe ─► ConPTY ─► PowerShell / Codex / Gemini
 ```
 
-Transporte seguro via SSH. Sem dependências externas além do Go.
+## What an agent does with it
 
----
+An example session (IDs and timings are illustrative):
 
-## Instalação
+```powershell
+PS> winmux new
+✓ Sessão criada: 3fa91c (PID 7412)
 
-### Pré-requisitos
-- Windows 10 1903+ ou Windows 11 (ConPTY requerido)
-- SSH configurado no Windows (OpenSSH Server)
+PS> winmux job run 3fa91c "npm test"          # returns immediately
+✓ Job iniciado: b20e7d
 
-### Download
+PS> winmux job wait b20e7d --timeout 10m      # or poll: winmux job status b20e7d
+✓ Concluído em 41s (212 linhas de output)
 
-Baixe os binários em [Releases](../../releases) ou compile do fonte:
+PS> winmux job output b20e7d --tail 20        # only what this command printed
+
+PS> winmux send 3fa91c "codex"                # open a TUI in the same session
+PS> winmux submit 3fa91c "summarize the failing tests"
+PS> winmux status 3fa91c
+⏳ busy (1m 12s remaining)
+PS> winmux status 3fa91c
+⏸ waiting (1. Allow | 2. Deny)
+PS> winmux key 3fa91c enter
+```
+
+The CLI's own messages are in Portuguese for now. Commands and flags are in English.
+
+## Install
+
+You need Windows 10 1809+ or Windows 11 (for ConPTY), plus OpenSSH Server if you want remote access.
+
+Download `winmux.exe` and `winmux-daemon.exe` from [Releases](../../releases) (`SHA256SUMS` included), or build from source with Go 1.23+:
 
 ```bash
 GOOS=windows GOARCH=amd64 go build -o dist/winmux.exe ./cmd/winmux
 GOOS=windows GOARCH=amd64 go build -o dist/winmux-daemon.exe ./cmd/daemon
 ```
 
-### Iniciar o daemon
+Start the daemon as the user whose tools you want to drive:
 
 ```powershell
-# Manualmente (foreground)
-.\winmux-daemon.exe
-
-# Em background (recomendado)
-Start-Process -FilePath .\winmux-daemon.exe -WindowStyle Hidden
+Start-Process .\winmux-daemon.exe -WindowStyle Hidden
 ```
 
-### Instalação como Serviço Windows
-
-Para que o daemon inicie automaticamente no boot do Windows, instale-o como serviço do sistema:
+To start it at every logon, create a scheduled task:
 
 ```powershell
-# Instalar o serviço (requer privilégios de Administrador)
-.\winmux-daemon.exe --install-service
-
-# Iniciar o serviço manualmente (ou reinicie o Windows)
-sc start WinMuxDaemon
-
-# Verificar status
-sc query WinMuxDaemon
-
-# Parar o serviço
-sc stop WinMuxDaemon
-
-# Remover o serviço
-.\winmux-daemon.exe --remove-service
+schtasks /Create /SC ONLOGON /TN winmux /TR "C:\tools\winmux-daemon.exe"
 ```
 
-> **Nota:** Execute o PowerShell como **Administrador** para instalar/remover serviços.
+## Commands
 
-O serviço é registrado como `WinMuxDaemon` com início automático (`StartType=Automatic`), rodando como `LocalSystem`. Após instalado, o daemon sobe automaticamente a cada boot, sem necessidade de login manual.
+| Command | What it does |
+|---|---|
+| `new [--shell powershell\|cmd\|<path>]` | Start a session in ConPTY, in your home directory, and print its ID |
+| `list` | Sessions with PID, shell, uptime and directory |
+| `send <id> <text>` / `submit <id> <text>` | Type text and press Enter |
+| `key <id> <key>` | `esc`, `enter`, `tab`, `ctrl+c`, `ctrl+d`, arrows, `pgup`/`pgdn`… |
+| `read <id> [n]` / `logs <id>` | Last *n* lines of output (default 50) / last 500 lines |
+| `status <id>` | `idle`, `busy`, `waiting` or `error`, with a detail hint |
+| `attach <id>` | Live two-way stream into the session |
+| `watch <id> --on-idle <cmd> --on-waiting <cmd>` | Run a callback when the state changes (webhooks, notifications) |
+| `reset <id>` | Ctrl+C + Enter, to get out of PowerShell's `>>` continuation prompt |
+| `job run\|status\|output\|wait\|list\|kill` | Asynchronous mode for agents (see below) |
+| `kill <id>` | End the session |
 
----
+## How it works
 
-## Uso
+**One reader, many listeners.** Each session has exactly one goroutine reading from ConPTY. It appends the output to a 10,000-line ring buffer and copies the raw bytes to any attached clients. Attaching therefore never takes output away from `read`, `status` or jobs.
 
-```
-winmux new [--shell powershell|cmd]          Cria nova sessão
-winmux list                                  Lista sessões ativas
-winmux attach <id>                           Conecta à sessão (I/O ao vivo)
-winmux send <id> <comando>                   Injeta comando (shell)
-winmux submit <id> <texto>                   Injeta texto em TUI (Gemini, Codex)
-winmux read <id> [linhas]                    Lê buffer de output (padrão: 50 linhas)
-winmux logs <id>                             Histórico completo do buffer (até 500 linhas)
-winmux status <id>                           Estado: idle | busy | waiting
-winmux reset <id>                            Envia Ctrl+C (limpa >>)
-winmux key <id> <tecla>                      Envia tecla especial (esc, ctrl+c, up, down…)
-winmux watch <id> [opções]                   Notifica quando estado muda
-winmux kill <id>                             Encerra sessão
+**State detection** (`status`, `watch`, jobs) reads the last 30 lines, plus the current unfinished line, because that's where prompts and `(y/n)` questions sit. The rules are checked in order:
 
-Jobs assíncronos (modo agente):
-winmux job run <id> <comando>                Dispara comando async, retorna job ID imediatamente
-winmux job status <job-id>                   Estado: running | done | error
-winmux job output <job-id> [--tail N]        Output acumulado do job
-winmux job wait <job-id> [--timeout 30m]     Aguarda conclusão com timeout
-winmux job list                              Lista todos os jobs ativos
-winmux job kill <job-id>                     Cancela job em andamento
+1. **busy:** braille or ASCII spinners, progress bars (`[===>  ]`, `█░`), counters like `[3/10]`, or words like *downloading* and *building*
+2. **waiting:** trust prompts, `(y/n)`, `press enter`, `? for shortcuts`, password prompts, `--More--`, or PowerShell's `>>`
+3. **error:** the last non-empty line looks like `error:`, `fatal:` or `failed`
+4. **idle:** none of the above
 
-winmux version                               Versão
-```
+**Jobs** are for agents that shouldn't block on long commands. `job run` records a line cursor, sends the command and returns a job ID straight away. The job collects only the lines printed after that cursor. It counts as done when the session is idle *and* a shell prompt (`PS C:\…>`) is back on the current line for 1.5 seconds. Without the prompt check, a command that prints nothing, like `Start-Sleep 30`, would look finished at once.
 
-### Exemplos
+**IPC** is newline-delimited JSON over `\\.\pipe\winmux`. `attach` switches the connection to a raw byte stream after a one-line JSON handshake.
 
-```powershell
-# Criar sessão e rodar um comando
-winmux new
-winmux send abc123 "Get-Date"
-winmux read abc123
+## Security model
 
-# Interagir com Gemini CLI ou Codex CLI (TUI)
-winmux submit abc123 "resuma os PDFs desta pasta"
+winmux runs whatever it receives as the user running the daemon. Treat access to the pipe as access to that account.
 
-# Verificar estado
-winmux status abc123
-# → busy (5m 44s remaining)
-# → waiting (1. Trust folder | 2. Trust parent | 3. Don't trust)
-# → idle
+- **The pipe is local only, with an explicit access list.** Only SYSTEM, Administrators and the user who started the daemon can connect. Without this, Windows' default pipe permissions would also give *Everyone* and *Anonymous* read access. Connections from other machines over SMB are refused.
+- **Remote access goes through SSH.** winmux never opens a network port, so its authentication is whatever your OpenSSH Server enforces.
+- **`watch` callbacks** run through `cmd /C` as the daemon's user, which is the same user who was allowed to set them up.
+- **Service mode** (`--install-service`) runs as **LocalSystem**. Sessions then run as SYSTEM in session 0, which is usually not what you want: your user's Codex or Gemini install and its credentials aren't there. Use the logon task above unless you specifically need SYSTEM.
 
-# Limpar modo de continuação >> do PowerShell
-winmux reset abc123
+## Limitations
 
-# Notificar via webhook quando terminar
-winmux watch abc123 --on-idle "curl -X POST https://meu-webhook.com/notify"
+- State detection is a heuristic over terminal text. It's tuned for PowerShell, Codex CLI and Gemini CLI. A TUI that never shows a shell prompt will never mark a job as done, so use `status` or `watch` for those.
+- `attach` passes raw bytes through without putting the local console into raw mode. It works, but it's not a full terminal emulator.
+- Sessions live in the daemon's memory. If you restart the daemon, they're gone.
 
-# Notificar quando precisar de input do usuário
-winmux watch abc123 --on-waiting "curl -X POST https://meu-webhook.com/aguardando"
+## Development
 
-# Watch com timeout
-winmux watch abc123 --on-idle "echo PRONTO" --timeout 300
+The core logic (buffer, state detection, job runner, IPC protocol) has no Windows dependency. It's tested on Linux, with the race detector on, against a mock session. The ConPTY layer is tested on a real Windows runner in CI. A PowerShell session is checked end to end: prompt detection, output capture with an attached client, and a silent `Start-Sleep` job that must not finish early. Then the built daemon and CLI run a job over the real named pipe.
+
+```bash
+go test -race ./...                  # any OS
+GOOS=windows go vet ./...            # cross-check the Windows code
 ```
 
----
+Pushing a `v*` tag builds and publishes the Windows binaries with checksums.
 
-## Caso de uso: agente de IA remoto (modo interativo)
+## License
 
-```
-[WhatsApp] → [Agente na nuvem] → SSH → winmux → [Gemini/Codex no Windows]
-```
-
-1. Agente cria sessão: `winmux new`
-2. Abre o CLI: `winmux send <id> "gemini --yolo"`
-3. Submete prompt: `winmux submit <id> "analise esses arquivos"`
-4. Monitora: `winmux watch <id> --on-idle "curl -X POST $WEBHOOK"`
-5. Lê resultado: `winmux read <id>`
-
----
-
-## Caso de uso: agente de IA remoto (modo assíncrono — v0.3.0)
-
-Para tarefas longas (análise de projeto, geração de código extenso), use jobs assíncronos — o agente não bloqueia nem fica em silêncio:
-
-```
-[WhatsApp] → [Agente] → SSH → winmux job run → [job ID] → polling → resultado
-```
-
-```powershell
-# 1. Disparar o job (retorna imediatamente)
-winmux job run minha-sessao "codex analyze ."
-# → ✓ Job iniciado: a3f9b2
-#   winmux job status a3f9b2
-
-# 2. Verificar progresso (o agente pode notificar o usuário enquanto espera)
-winmux job status a3f9b2
-# → ⏳ running  sessão=minha-sessao  linhas=47  tempo=2m30s
-
-# 3. Aguardar conclusão com timeout
-winmux job wait a3f9b2 --timeout 30m
-# → ✓ Concluído em 8m12s (312 linhas de output)
-
-# 4. Ler resultado
-winmux job output a3f9b2 --tail 50
-```
-
-O agente sinaliza ao usuário imediatamente após o `job run`:
-> "Comando enviado (job a3f9b2). Te aviso quando terminar — pode levar alguns minutos."
-
----
-
-## Detecção de estado (`winmux status`)
-
-O daemon analisa o buffer de output da sessão e detecta:
-
-| Estado | Descrição |
-|--------|-----------|
-| `idle` | Prompt disponível, pronto para receber comandos |
-| `busy` | Spinner detectado (⠋⠙⠹ ou \|/-), processo em andamento |
-| `waiting` | Aguardando input do usuário (Trust folder?, Press enter, etc.) |
-
----
-
-## Stack
-
-- **Go** — cross-compile nativo, binário único, sem runtime
-- **ConPTY** — pseudo-terminal Windows nativo
-- **Named pipe** — IPC local eficiente (`\\.\pipe\winmux`)
-- **SSH** — transporte seguro (sem servidor HTTP exposto)
-
----
-
-## Roadmap
-
-- [x] Serviço Windows (sobe automaticamente no boot) — `--install-service`
-- [x] `winmux logs <id>` — histórico completo da sessão (até 500 linhas)
-- [x] `winmux key <id> <tecla>` — enviar teclas especiais (Ctrl+C, Escape, setas)
-- [x] `winmux job *` — modo assíncrono para agentes de IA (v0.3.0)
-
----
-
-## Licença
-
-MIT
+[MIT](LICENSE) © 2026 Christian Conce
