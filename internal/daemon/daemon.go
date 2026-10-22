@@ -24,19 +24,14 @@ func (d *Daemon) HandleAttach(id string, conn net.Conn) {
 		return
 	}
 
-	// Confirma attach
-	writeJSON(conn, ipc.ResponseAttach{OK: true, SessionID: id})
-
-	// Streaming bidirecional — requer net.Conn + cpty (Windows)
-	// Faz type assertion para Session concreta
 	concrete, ok := sess.(*Session)
 	if !ok {
-		writeJSON(conn, ipc.ResponseAttach{Error: "sessão não é do tipo Session"})
+		writeJSON(conn, ipc.ResponseAttach{Error: "sessão não suporta attach"})
 		return
 	}
-	done := make(chan struct{})
-	concrete.Attach(conn, conn, done)
-	<-done
+	// Confirma attach; daqui em diante o protocolo é streaming raw.
+	writeJSON(conn, ipc.ResponseAttach{OK: true, SessionID: id})
+	concrete.Attach(conn)
 }
 
 // handleWatch inicia watch em goroutine separada e retorna confirmação imediata.
@@ -94,7 +89,10 @@ func (d *Daemon) runWatch(req ipc.Request) {
 		}
 
 		if cb != "" {
-			exec.Command("cmd", "/C", cb).Start()
+			// O callback roda com o usuário do daemon — o mesmo que pôde pedir o watch.
+			if c := exec.Command("cmd", "/C", cb); c.Start() == nil {
+				go c.Wait()
+			}
 		}
 
 		if state == "idle" && req.OnIdle != "" {

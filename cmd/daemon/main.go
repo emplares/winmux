@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Microsoft/go-winio"
 	"github.com/emplares/winmux/internal/daemon"
 	"github.com/emplares/winmux/internal/ipc"
 )
@@ -55,7 +54,7 @@ func main() {
 
 // runDaemon inicializa e executa o loop principal do daemon.
 func runDaemon() {
-	fmt.Println("winmux daemon v0.2.0")
+	fmt.Println("winmux daemon v" + ipc.Version)
 	fmt.Printf("Named pipe: %s\n", ipc.PipeName)
 
 	d := daemon.New()
@@ -68,13 +67,9 @@ func runDaemon() {
 		os.Exit(0)
 	}()
 
-	cfg := &winio.PipeConfig{
-		InputBufferSize:  65536,
-		OutputBufferSize: 65536,
-	}
-	listener, err := winio.ListenPipe(ipc.PipeName, cfg)
+	listener, err := ipc.Listen()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Erro ao criar named pipe: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Erro: %v\n", err)
 		os.Exit(1)
 	}
 	defer listener.Close()

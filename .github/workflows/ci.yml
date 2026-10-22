@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: unit tests (linux, -race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: vet (linux + windows)
+        run: go vet ./... && GOOS=windows go vet ./...
+      - run: go test -race -count=1 ./...
+
+  windows:
+    name: ConPTY integration (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -v -count=1 ./...
+      - name: build
+        run: |
+          go build -o dist/winmux.exe ./cmd/winmux
+          go build -o dist/winmux-daemon.exe ./cmd/daemon
+      - name: end-to-end smoke (daemon + CLI over the named pipe)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $d = Start-Process dist/winmux-daemon.exe -PassThru -NoNewWindow -RedirectStandardOutput daemon.log
+          Start-Sleep 2
+          ./dist/winmux.exe version
+          $new = ./dist/winmux.exe new | Out-String; $new
+          $sid = [regex]::Match($new, '[0-9a-f]{6}').Value
+          Start-Sleep 3
+          ./dist/winmux.exe list
+          $run = ./dist/winmux.exe job run $sid "Start-Sleep 2; Write-Output ('smoke' + '-ok')" | Out-String; $run
+          $jid = [regex]::Match($run, '[0-9a-f]{6}').Value
+          ./dist/winmux.exe job wait $jid --timeout 60s
+          $out = ./dist/winmux.exe job output $jid | Out-String; $out
+          ./dist/winmux.exe status $sid
+          ./dist/winmux.exe kill $sid
+          Stop-Process $d
+          if ($out -notmatch '(?m)^smoke-ok') { throw 'job output missing smoke-ok' }
+
+  release:
+    name: release binaries
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          go build -trimpath -ldflags "-s -w" -o dist/winmux.exe ./cmd/winmux
+          go build -trimpath -ldflags "-s -w" -o dist/winmux-daemon.exe ./cmd/daemon
+          cd dist && sha256sum *.exe > SHA256SUMS
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

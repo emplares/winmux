@@ -3,7 +3,9 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +16,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/Microsoft/go-winio"
 	"github.com/emplares/winmux/internal/ipc"
 )
 
@@ -92,7 +93,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "version":
-		fmt.Println("winmux v0.3.0")
+		fmt.Println("winmux v" + ipc.Version)
 	default:
 		fmt.Fprintf(os.Stderr, "Comando desconhecido: %s\n", os.Args[1])
 		printUsage()
@@ -114,7 +115,7 @@ func cmdNew() {
 	var r ipc.ResponseNew
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	fmt.Printf("✓ Sessão criada: %s (PID %d)\n", r.SessionID, r.PID)
 	fmt.Printf("  winmux attach %s\n", r.SessionID)
@@ -128,7 +129,7 @@ func cmdList() {
 	var r ipc.ResponseList
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	if len(r.Sessions) == 0 {
 		fmt.Println("Nenhuma sessão ativa. Use: winmux new")
@@ -153,7 +154,7 @@ func cmdKill(id string) {
 	var r ipc.ResponseKill
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	fmt.Printf("✓ Sessão %s encerrada.\n", id)
 }
@@ -166,7 +167,7 @@ func cmdSend(id, input string) {
 	var r ipc.ResponseSend
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	fmt.Printf("✓ Comando enviado para sessão %s\n", id)
 }
@@ -181,7 +182,7 @@ func cmdSubmit(id, input string) {
 	var r ipc.ResponseSend
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	fmt.Printf("✓ Input submetido para sessão %s\n", id)
 }
@@ -194,7 +195,7 @@ func cmdRead(id string, lines int) {
 	var r ipc.ResponseRead
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	for _, line := range r.Lines {
 		fmt.Println(line)
@@ -209,7 +210,7 @@ func cmdStatus(id string) {
 	var r ipc.ResponseStatus
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 
 	// Escolhe emoji/prefixo de acordo com o estado
@@ -242,7 +243,7 @@ func cmdReset(id string) {
 	var r ipc.ResponseSend
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	fmt.Printf("✓ Sessão %s resetada (Ctrl+C enviado)\n", id)
 }
@@ -255,7 +256,7 @@ func cmdKey(id, key string) {
 	var r ipc.ResponseKey
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	fmt.Printf("✓ Tecla %q enviada para sessão %s\n", key, id)
 }
@@ -269,7 +270,7 @@ func cmdLogs(id string) {
 	var r ipc.ResponseLogs
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	for _, line := range r.Lines {
 		fmt.Println(line)
@@ -315,7 +316,7 @@ func cmdWatch(args []string) {
 	var r ipc.ResponseWatch
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 
 	fmt.Printf("👀 Watching sessão %s", id)
@@ -346,7 +347,7 @@ func cmdJobRun(sessionID, command string) {
 	var r ipc.ResponseJobRun
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	fmt.Printf("✓ Job iniciado: %s\n", r.JobID)
 	fmt.Printf("  winmux job status %s\n", r.JobID)
@@ -361,7 +362,7 @@ func cmdJobStatus(jobID string) {
 	var r ipc.ResponseJobStatus
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	j := r.Job
 	var prefix string
@@ -400,7 +401,7 @@ func cmdJobOutput(args []string) {
 	var r ipc.ResponseJobOutput
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	for _, line := range r.Lines {
 		fmt.Println(line)
@@ -435,7 +436,7 @@ func cmdJobWait(args []string) {
 	var r ipc.ResponseJobStatus
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	j := r.Job
 	switch j.State {
@@ -456,7 +457,7 @@ func cmdJobList() {
 	var r ipc.ResponseJobList
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	if len(r.Jobs) == 0 {
 		fmt.Println("Nenhum job ativo.")
@@ -485,31 +486,32 @@ func cmdJobKill(jobID string) {
 	var r ipc.ResponseJobKill
 	mustUnmarshal(resp, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 	fmt.Printf("✓ Job %s cancelado.\n", jobID)
 }
 
 func cmdAttach(id string) {
 	// Attach usa streaming raw — conecta diretamente ao pipe
-	timeout := 3 * time.Second
-	conn, err := winio.DialPipe(ipc.PipeName, &timeout)
+	conn, err := ipc.Dial()
 	if err != nil {
-		fatal(fmt.Errorf("conectar ao daemon: %w\nO daemon está rodando? Execute: winmux-daemon.exe", err))
+		fatal(err)
 	}
 	defer conn.Close()
 
-	// Envia request de attach
 	req, _ := json.Marshal(ipc.Request{Action: "attach", ID: id})
 	conn.Write(append(req, '\n'))
 
-	// Lê confirmação JSON
-	buf := make([]byte, 512)
-	n, _ := conn.Read(buf)
+	// A confirmação é uma linha JSON; o que vier depois já é output da sessão.
+	rd := bufio.NewReader(conn)
+	line, err := rd.ReadBytes('\n')
+	if err != nil {
+		fatal(fmt.Errorf("sem resposta do daemon: %w", err))
+	}
 	var r ipc.ResponseAttach
-	json.Unmarshal(buf[:n], &r)
+	mustUnmarshal(line, &r)
 	if r.Error != "" {
-		fatal(fmt.Errorf(r.Error))
+		fatal(errors.New(r.Error))
 	}
 
 	fmt.Printf("[winmux] Conectado à sessão %s — Ctrl+C para desconectar\n", id)
@@ -525,7 +527,7 @@ func cmdAttach(id string) {
 	}()
 
 	// Streaming bidirecional
-	go io.Copy(os.Stdout, conn)
+	go io.Copy(os.Stdout, rd)
 	io.Copy(conn, os.Stdin)
 }
 

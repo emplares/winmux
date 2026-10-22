@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -24,15 +25,16 @@ type Session struct {
 	Shell     string
 	Dir       string
 	CreatedAt time.Time
-	Status    string // "active", "dead"
+	status    string // "active" | "dead"; protegido por sessionBuffer.mu
 
 	cpty   *conpty.ConPty
+	ctx    context.Context
 	cancel context.CancelFunc
 
 	sessionBuffer // buffer circular de output + DetectState
 }
 
-// NewSession cria e inicia uma sessão ConPTY.
+// NewSession cria e inicia uma sessão ConPTY no diretório do usuário.
 func NewSession(id, shell string) (*Session, error) {
 	path, ok := shellPaths[shell]
 	if !ok {
@@ -41,8 +43,12 @@ func NewSession(id, shell string) (*Session, error) {
 	if path == "" {
 		path = shellPaths["powershell"]
 	}
+	dir, err := os.UserHomeDir()
+	if err != nil {
+		dir, _ = os.Getwd()
+	}
 
-	cpty, err := conpty.Start(path)
+	cpty, err := conpty.Start(path, conpty.ConPtyWorkDir(dir))
 	if err != nil {
 		return nil, fmt.Errorf("iniciar ConPTY (%s): %w", path, err)
 	}
@@ -53,34 +59,43 @@ func NewSession(id, shell string) (*Session, error) {
 		ID:            id,
 		PID:           cpty.Pid(),
 		Shell:         shell,
-		Dir:           `C:\`,
+		Dir:           dir,
 		CreatedAt:     time.Now(),
-		Status:        "active",
+		status:        "active",
 		cpty:          cpty,
+		ctx:           ctx,
 		cancel:        cancel,
 		sessionBuffer: newSessionBuffer(),
 	}
 
-	go s.captureOutput(ctx)
+	go s.captureOutput()
 
 	go func() {
 		cpty.Wait(ctx)
-		s.Status = "dead"
+		s.setStatus("dead")
 		cancel()
 	}()
 
 	return s, nil
 }
 
-// captureOutput lê o output do ConPTY e armazena no buffer circular.
-func (s *Session) captureOutput(ctx context.Context) {
+func (s *Session) setStatus(st string) {
+	s.mu.Lock()
+	s.status = st
+	s.mu.Unlock()
+}
+
+// GetStatus devolve "active" ou "dead".
+func (s *Session) GetStatus() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.status
+}
+
+// captureOutput é o único leitor do ConPTY: alimenta o buffer e os attach.
+func (s *Session) captureOutput() {
 	buf := make([]byte, 4096)
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
 		n, err := s.cpty.Read(buf)
 		if n > 0 {
 			s.appendOutput(buf[:n])
@@ -124,26 +139,26 @@ func (s *Session) Reset() error {
 
 // keySequences mapeia nomes de teclas para sequências de bytes.
 var keySequences = map[string][]byte{
-	"esc":        {0x1b},
-	"escape":     {0x1b},
-	"ctrl+c":     {0x03},
-	"ctrl+d":     {0x04},
-	"ctrl+z":     {0x1a},
-	"ctrl+l":     {0x0c},
-	"ctrl+a":     {0x01},
-	"ctrl+e":     {0x05},
-	"tab":        {0x09},
-	"enter":      {0x0d},
-	"up":         {0x1b, 0x5b, 0x41},
-	"down":       {0x1b, 0x5b, 0x42},
-	"right":      {0x1b, 0x5b, 0x43},
-	"left":       {0x1b, 0x5b, 0x44},
-	"home":       {0x1b, 0x5b, 0x48},
-	"end":        {0x1b, 0x5b, 0x46},
-	"pgup":       {0x1b, 0x5b, 0x35, 0x7e},
-	"pgdn":       {0x1b, 0x5b, 0x36, 0x7e},
-	"delete":     {0x1b, 0x5b, 0x33, 0x7e},
-	"backspace":  {0x7f},
+	"esc":       {0x1b},
+	"escape":    {0x1b},
+	"ctrl+c":    {0x03},
+	"ctrl+d":    {0x04},
+	"ctrl+z":    {0x1a},
+	"ctrl+l":    {0x0c},
+	"ctrl+a":    {0x01},
+	"ctrl+e":    {0x05},
+	"tab":       {0x09},
+	"enter":     {0x0d},
+	"up":        {0x1b, 0x5b, 0x41},
+	"down":      {0x1b, 0x5b, 0x42},
+	"right":     {0x1b, 0x5b, 0x43},
+	"left":      {0x1b, 0x5b, 0x44},
+	"home":      {0x1b, 0x5b, 0x48},
+	"end":       {0x1b, 0x5b, 0x46},
+	"pgup":      {0x1b, 0x5b, 0x35, 0x7e},
+	"pgdn":      {0x1b, 0x5b, 0x36, 0x7e},
+	"delete":    {0x1b, 0x5b, 0x33, 0x7e},
+	"backspace": {0x7f},
 }
 
 // SendKey envia uma tecla especial para a sessão pelo nome.
@@ -156,38 +171,26 @@ func (s *Session) SendKey(key string) error {
 	return err
 }
 
-// Attach conecta um writer ao output e um reader ao input da sessão (streaming).
-func (s *Session) Attach(w io.Writer, r io.Reader, done chan struct{}) {
+// Attach liga conn à sessão até o cliente desconectar ou a sessão morrer.
+// O output chega via subscribe, então o buffer (read/status/jobs) continua
+// completo durante e depois do attach.
+func (s *Session) Attach(conn io.ReadWriter) {
+	unsubscribe := s.subscribe(conn)
+	defer unsubscribe()
+	inputDone := make(chan struct{})
 	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := s.cpty.Read(buf)
-			if n > 0 {
-				w.Write(buf[:n])
-			}
-			if err != nil {
-				close(done)
-				return
-			}
-		}
+		io.Copy(s.cpty, conn)
+		close(inputDone)
 	}()
-	go func() {
-		buf := make([]byte, 256)
-		for {
-			n, err := r.Read(buf)
-			if n > 0 {
-				s.cpty.Write(buf[:n])
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
+	select {
+	case <-inputDone:
+	case <-s.ctx.Done():
+	}
 }
 
 // Close encerra a sessão.
 func (s *Session) Close() {
 	s.cancel()
 	s.cpty.Close()
-	s.Status = "dead"
+	s.setStatus("dead")
 }
