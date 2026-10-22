@@ -17,27 +17,38 @@ chat ─► cloud agent ─► ssh ─► winmux.exe ─► \\.\pipe\winmux ─�
 
 ## What an agent does with it
 
-An example session (IDs and timings are illustrative):
+This is a real transcript from the CI smoke test on a GitHub `windows-latest` runner (the CLI's hint lines are trimmed):
 
 ```powershell
 PS> winmux new
-✓ Sessão criada: 3fa91c (PID 7412)
+✓ Sessão criada: ec3f2a (PID 1576)
 
-PS> winmux job run 3fa91c "npm test"          # returns immediately
-✓ Job iniciado: b20e7d
+PS> winmux list
+ID      PID   SHELL       STATUS  UPTIME  DIR
+──      ───   ─────       ──────  ──────  ───
+ec3f2a  1576  powershell  active  3s      C:\Users\runneradmin
 
-PS> winmux job wait b20e7d --timeout 10m      # or poll: winmux job status b20e7d
-✓ Concluído em 41s (212 linhas de output)
+PS> winmux job run ec3f2a "Start-Sleep 2; Write-Output ('smoke' + '-ok')"   # returns immediately
+✓ Job iniciado: b9ea70
 
-PS> winmux job output b20e7d --tail 20        # only what this command printed
+PS> winmux job wait b9ea70 --timeout 60s       # or poll: winmux job status b9ea70
+✓ Concluído em 4s (1 linhas de output)
 
-PS> winmux send 3fa91c "codex"                # open a TUI in the same session
-PS> winmux submit 3fa91c "summarize the failing tests"
-PS> winmux status 3fa91c
-⏳ busy (1m 12s remaining)
-PS> winmux status 3fa91c
-⏸ waiting (1. Allow | 2. Deny)
-PS> winmux key 3fa91c enter
+PS> winmux job output b9ea70                   # only what this command printed, ANSI-free
+smoke-ok
+
+PS> winmux status ec3f2a
+✓ idle
+```
+
+Driving a TUI uses the same session:
+
+```powershell
+winmux send ec3f2a "codex"                     # start the TUI
+winmux submit ec3f2a "summarize the failing tests"
+winmux status ec3f2a                           # busy while it works, waiting on a prompt, with the options it shows
+winmux key ec3f2a enter                        # answer a menu
+winmux read ec3f2a 40                          # read the screen
 ```
 
 The CLI's own messages are in Portuguese for now. Commands and flags are in English.
@@ -121,6 +132,14 @@ GOOS=windows go vet ./...            # cross-check the Windows code
 ```
 
 Pushing a `v*` tag builds and publishes the Windows binaries with checksums.
+
+### What the real Windows runner caught
+
+Mocked tests can't show what ConPTY actually puts out. The first Windows CI runs found three bugs that the Linux suite had missed:
+
+- **Enter is `\r`, not `\r\n`.** The extra `\n` reached PSReadLine as a second line, which left PowerShell stuck at the `>>` continuation prompt after every command. That's why an earlier version needed a `reset` command.
+- **Paths looked like spinners.** The ASCII-spinner rule counted `\ | / -` anywhere on screen, so `C:\Users\…` and `Write-Output` made a plain idle prompt read as *busy*. Now a spinner frame only counts when it's redrawn in place, after `\r`, a backspace or a cursor-move sequence.
+- **ConPTY repaints by moving the cursor.** It doesn't always print newlines, so the prompt and the command's echo can share a line. Jobs therefore skip the echo line and strip ANSI codes before returning output.
 
 ## License
 
